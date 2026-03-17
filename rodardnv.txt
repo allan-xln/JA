@@ -1,0 +1,180 @@
+===================================================================
+ELETROFRIO - COMO RODAR O SISTEMA
+===================================================================
+
+Sistema composto por:
+
+1. Simulador (gera dados de sensores)
+2. IA (detecta anomalias automaticamente)
+3. API (fornece os dados para o sistema)
+4. Frontend (dashboard web)
+
+===================================================================
+1. ENTRAR NA PASTA DO PROJETO
+===================================================================
+
+cd ~/Documentos/Facul/JA
+
+===================================================================
+2. ATIVAR AMBIENTE PYTHON
+===================================================================
+
+conda activate eletrofrio-ai
+
+Se não existir:
+
+conda env create -f environment.yml
+conda activate eletrofrio-ai
+
+===================================================================
+3. RODAR SIMULADOR (Terminal 1)
+===================================================================
+
+Responsável por gerar dados em tempo real.
+
+python -m Sensors.simulator
+
+Esperado:
+[SIM] exhibitor ... temp=...
+
+===================================================================
+4. RODAR IA (Terminal 2)
+===================================================================
+
+Responsável por analisar os dados e detectar anomalias.
+
+python -m consumer.ai_consumer
+
+Esperado:
+[OK] funcionamento normal
+[ALERTA] anomalia detectada
+
+===================================================================
+5. RODAR API (Terminal 3)
+===================================================================
+
+Responsável por servir os dados para o frontend.
+
+uvicorn api.main:app --reload
+
+Testar no navegador:
+
+http://127.0.0.1:8000/health
+http://127.0.0.1:8000/api/dashboard
+
+Se aparecer JSON = OK
+
+===================================================================
+6. RODAR FRONTEND (Terminal 4)
+===================================================================
+
+Interface visual do sistema.
+
+cd Frontend/JA-IA-ELETROFRIO
+
+npm install
+npm run dev
+
+Abrir no navegador:
+
+http://localhost:3000
+
+===================================================================
+7. ORDEM CORRETA (IMPORTANTE)
+===================================================================
+
+Sempre iniciar nessa ordem:
+
+1. Simulador
+2. IA
+3. API
+4. Frontend
+
+Se iniciar fora de ordem, o sistema pode ficar sem dados.
+
+===================================================================
+8. PARAR O SISTEMA
+===================================================================
+
+CTRL + C em cada terminal
+
+===================================================================
+9. JUPYTER LAB (USO ACADÊMICO)
+===================================================================
+
+O Jupyter é utilizado para estudo, análise e demonstração do modelo.
+
+NÃO é necessário para rodar o sistema principal.
+
+Para abrir:
+
+jupyter lab
+
+Abrir no navegador:
+
+http://localhost:8888
+
+Acessar:
+
+notebooks/01_anomalias.ipynb
+
+Executar:
+
+Run → Run All Cells
+
+===================================================================
+PARA QUE O JUPYTER É USADO
+===================================================================
+
+- Visualizar dados gerados pelo sistema
+- Testar o modelo de IA manualmente
+- Gerar gráficos e análises
+- Demonstrar aprendizado de máquina na faculdade
+
+===================================================================
+POR QUE NÃO USAMOS NO SISTEMA PRINCIPAL
+===================================================================
+
+O sistema real precisa rodar automaticamente e em tempo real.
+
+Por isso usamos scripts:
+
+- simulator.py → gera dados continuamente
+- ai_consumer.py → treina e detecta anomalias automaticamente
+- API → entrega os dados
+- Frontend → exibe o dashboard
+
+O Jupyter é apenas um ambiente de estudo, não de execução contínua.
+
+===================================================================
+A MÁQUINA ESTÁ APRENDENDO?
+===================================================================
+
+SIM.
+
+O modelo de IA (Isolation Forest):
+
+- é treinado com os dados gerados
+- aprende o padrão normal de funcionamento
+- detecta comportamentos fora do padrão (anomalias)
+
+O aprendizado acontece automaticamente no arquivo:
+
+consumer/ai_consumer.py
+
+===================================================================
+OBSERVAÇÕES
+===================================================================
+
+- Jupyter não é obrigatório para rodar o sistema
+- Se aparecer "Failed to fetch", a API não está rodando
+- Se não aparecer dados, o simulador não está rodando
+- Se não houver alertas, a IA ainda não detectou anomalias
+
+===================================================================
+FLUXO DO SISTEMA
+===================================================================
+
+Simulador → arquivo JSONL → IA → API → Frontend
+
+===================================================================
