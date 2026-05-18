@@ -1,11 +1,29 @@
 import json
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 import pandas as pd
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Eletrofrio API", version="1.0.0")
+from api.config import settings
+from api.routes.collector import router as collector_router
+from api.routes.eletrofrio import router as eletrofrio_router
+from api.scheduler import start_scheduler, stop_scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.start_internal_scheduler:
+        await start_scheduler()
+    try:
+        yield
+    finally:
+        if settings.start_internal_scheduler:
+            await stop_scheduler()
+
+
+app = FastAPI(title="Eletrofrio API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,6 +35,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(eletrofrio_router)
+app.include_router(collector_router)
 
 STREAM_PATH = Path("stream/live_readings.jsonl")
 
