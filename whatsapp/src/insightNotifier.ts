@@ -61,6 +61,15 @@ type NotificationItem = {
   whatsapp_sent_at: string | null;
 };
 
+type SummaryTotals = {
+  total: number;
+  critical: number;
+  warning: number;
+  info: number;
+  anomalies: number;
+  insights: number;
+};
+
 type CollectorRun = {
   id: string;
   started_at: string;
@@ -94,6 +103,11 @@ function hasEnoughEvidence(item: NotificationItem) {
 function numberFromEvidence(value: unknown) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function compactText(value: string | null | undefined, fallback: string, maxLength = 210) {
+  const text = String(value || fallback).replace(/\s+/g, " ").trim();
+  return text.length <= maxLength ? text : `${text.slice(0, maxLength - 3).trim()}...`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -197,6 +211,27 @@ function itemPriorityScore(item: NotificationItem) {
   return priority;
 }
 
+function severityBucket(item: NotificationItem): "critical" | "warning" | "info" {
+  const severity = normalize(item.severity || "");
+  if (["critical", "critico", "critica", "high", "alta", "alto"].includes(severity)) return "critical";
+  if (["warning", "alerta", "atencao", "atenção", "media", "medio", "medium"].includes(severity)) return "warning";
+  return "info";
+}
+
+function summaryTotals(items: NotificationItem[]): SummaryTotals {
+  return items.reduce<SummaryTotals>(
+    (totals, item) => {
+      totals.total += 1;
+      const sourceKey = item.source === "anomaly" ? "anomalies" : "insights";
+      const severityKey = severityBucket(item);
+      totals[sourceKey] += 1;
+      totals[severityKey] += 1;
+      return totals;
+    },
+    { total: 0, critical: 0, warning: 0, info: 0, anomalies: 0, insights: 0 },
+  );
+}
+
 function shouldNotifyItem(item: NotificationItem) {
   const severity = normalize(item.severity || "");
   if (item.whatsapp_sent_at) return false;
@@ -288,8 +323,9 @@ function formatOperationalMessage(item: NotificationItem) {
 function formatSummaryItem(item: NotificationItem, index: number) {
   const loja = item.loja_nome || (item.loja_id ? `unidade ${item.loja_id}` : "loja monitorada");
   const equipamento = item.tag || (item.dispositivo_id ? `dispositivo ${item.dispositivo_id}` : "equipamento monitorado");
-  const severity = ["critical", "critico", "critica"].includes(normalize(item.severity || "")) ? "Prioridade crítica" : "Atenção operacional";
-  const evidence = operationalEvidenceText(item).replace(/\s+/g, " ").trim();
+  const severity = severityBucket(item) === "critical" ? "critica" : severityBucket(item) === "warning" ? "atencao" : "informativa";
+  const source = item.source === "anomaly" ? "anomalia" : "insight";
+  const evidence = compactText(operationalEvidenceText(item), "Ocorrencia operacional relevante.", 240);
   const evaluation = ruleEvaluation(item);
   const action =
     String(item.evidence_json?.recommended_action || evaluation.recommended_action || "") ||
@@ -297,26 +333,70 @@ function formatSummaryItem(item: NotificationItem, index: number) {
     "validar leitura local, porta, carga térmica e condição do equipamento.";
 
   return [
-    `${index}. ${loja} - ${equipamento}`,
-    `${evidence || "Ocorrência operacional relevante."} ${severity}.`,
-    `Ação: ${action}`,
+    `${index}. [${severity}] ${loja} - ${equipamento}`,
+    `Origem: ${source}. Evidencia: ${evidence}`,
+    `Acao: ${compactText(action, "Validar evidencia local e condicao do equipamento.", 180)}`,
   ].join("\n");
 }
 
-function formatOperationalSummaryMessage(run: CollectorRun | null, items: NotificationItem[]) {
+function topLabels(items: NotificationItem[], keySelector: (item: NotificationItem) => string, limit = 4) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = keySelector(item);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, limit)
+    .map(([label, count]) => `${label} (${count})`);
+}
+
+function selectSummaryHighlights(items: NotificationItem[]) {
+  const seen = new Set<string>();
+  const sorted = [...items].sort((left, right) => {
+    const priorityDiff = itemPriorityScore(right) - itemPriorityScore(left);
+    if (priorityDiff) return priorityDiff;
+    return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+  });
+
+  const selected: NotificationItem[] = [];
+  for (const item of sorted) {
+    const key = `${item.loja_id || item.loja_nome || "loja"}:${item.dispositivo_id || item.tag || item.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(item);
+    if (selected.length >= 10) break;
+  }
+  return selected;
+}
+
+function formatOperationalSummaryMessage(run: CollectorRun | null, items: NotificationItem[], allItems: NotificationItem[]) {
   const finishedAt = run?.finished_at || run?.started_at || new Date().toISOString();
+  const totals = summaryTotals(allItems);
+  const criticalItems = allItems.filter((item) => severityBucket(item) === "critical");
+  const warningItems = allItems.filter((item) => severityBucket(item) === "warning");
+  const topStores = topLabels(allItems, (item) => item.loja_nome || (item.loja_id ? `Loja ${item.loja_id}` : ""));
+  const topEquipment = topLabels(allItems, (item) => item.tag || (item.dispositivo_id ? `Dispositivo ${item.dispositivo_id}` : ""));
   const header = [
     "Resumo operacional Eletrofrio",
     "",
-    `Coleta concluída às ${new Date(finishedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}.`,
-    `Foram analisadas ${run?.units_count ?? 0} lojas, ${run?.alarms_count ?? 0} alarmes e ${run?.telemetry_count ?? 0} telemetrias.`,
+    `Atualizacao: ${new Date(finishedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}.`,
+    `Base real: ${run?.units_count ?? 0} lojas, ${run?.alarms_count ?? 0} alarmes e ${run?.telemetry_count ?? 0} telemetrias na ultima coleta.`,
+    `Ocorrencias no resumo: ${totals.total} (${totals.critical} criticas, ${totals.warning} em atencao, ${totals.info} informativas).`,
+    `Fontes: ${totals.anomalies} anomalias abertas e ${totals.insights} insights recentes.`,
+    topStores.length ? `Lojas com mais ocorrencias: ${topStores.join("; ")}.` : "",
+    topEquipment.length ? `Equipamentos mais recorrentes: ${topEquipment.join("; ")}.` : "",
+    criticalItems.length || warningItems.length
+      ? `Prioridade agora: tratar ${criticalItems.length} criticas e acompanhar ${warningItems.length} em atencao.`
+      : "Prioridade agora: acompanhar ocorrencias informativas e manter coleta ativa.",
     "",
-    "Prioridades:",
-  ].join("\n");
+    "Destaques:",
+  ].filter(Boolean).join("\n");
   const body = items.map((item, index) => formatSummaryItem(item, index + 1)).join("\n\n");
-  const footer = "\n\nObs.: causas raízes não são confirmadas automaticamente.";
+  const footer = "\n\nObs.: causas raizes nao sao confirmadas automaticamente; valide evidencia local antes de acionar manutencao.";
   const message = `${header}\n${body}${footer}`;
-  return message.length <= 1800 ? message : `${message.slice(0, 1748).trim()}...\n\nObs.: resumo reduzido para o canal operacional.`;
+  return message.length <= 3600 ? message : `${message.slice(0, 3548).trim()}...\n\nObs.: resumo reduzido para o canal operacional.`;
 }
 
 function addReason(reasons: Record<string, number>, reason: IgnoreReason) {
@@ -388,23 +468,21 @@ async function latestSuccessfulRun() {
   return rows.find((row) => ["success", "partial_success"].includes(row.status)) || rows[0] || null;
 }
 
-async function pendingNotificationItems() {
-  const pendingInsights = await selectRows<Insight>("eletrofrio_ai_insights", {
+async function currentNotificationItems() {
+  const recentInsights = await selectRows<Insight>("eletrofrio_ai_insights", {
     select: "*",
-    whatsapp_sent_at: "is.null",
     order: "created_at.desc",
-    limit: 80,
+    limit: 120,
   });
-  const pendingAnomalies = await selectRows<Anomaly>("eletrofrio_anomalies", {
+  const openAnomalies = await selectRows<Anomaly>("eletrofrio_anomalies", {
     select: "*",
     status: "eq.open",
-    whatsapp_sent_at: "is.null",
     order: "detected_at.desc",
-    limit: 80,
+    limit: 120,
   });
   return [
-    ...pendingAnomalies.map(anomalyToItem),
-    ...pendingInsights.map(insightToItem),
+    ...openAnomalies.map(anomalyToItem),
+    ...recentInsights.map(insightToItem),
   ];
 }
 
@@ -472,14 +550,15 @@ export async function sendOperationalSummary() {
   }
 
   const run = await latestSuccessfulRun();
-  const pending = await pendingNotificationItems();
-  const selected = await selectSummaryItems(pending);
+  const current = await currentNotificationItems();
+  const summaryItems = selectSummaryHighlights(current);
+  const pendingSelected = await selectSummaryItems(current);
 
-  if (!selected.length) {
+  if (!summaryItems.length) {
     return {
       ok: true,
       dry_run: config.dryRun,
-      message: "Nenhuma ocorrência relevante para envio.",
+      message: "Nenhuma ocorrência real encontrada para o resumo operacional.",
       selected_count: 0,
       sent_count: 0,
       recipients: recipients.length,
@@ -488,8 +567,9 @@ export async function sendOperationalSummary() {
     };
   }
 
-  const message = formatOperationalSummaryMessage(run, selected);
-  const items = selected.map((item) => ({
+  const totals = summaryTotals(current);
+  const message = formatOperationalSummaryMessage(run, summaryItems, current);
+  const items = summaryItems.map((item) => ({
     id: item.id,
     source: item.source,
     loja_nome: item.loja_nome,
@@ -515,16 +595,17 @@ export async function sendOperationalSummary() {
       message,
       status: "dry-run",
       source: "sistema",
-      payload_json: { selected_count: selected.length, recipients: recipients.length, items },
+      payload_json: { selected_count: summaryItems.length, recipients: recipients.length, totals, items },
     });
     return {
       ok: true,
       dry_run: true,
       message: "Resumo operacional preparado em modo validação.",
-      selected_count: selected.length,
+      selected_count: summaryItems.length,
       sent_count: 0,
       recipients: recipients.length,
       recipient_source: recipientSource,
+      totals,
       items,
       preview: message,
     };
@@ -542,7 +623,7 @@ export async function sendOperationalSummary() {
       message,
       status: "failed",
       source: "sistema",
-      payload_json: { selected_count: selected.length, error: error instanceof Error ? error.message : String(error) },
+      payload_json: { selected_count: summaryItems.length, totals, error: error instanceof Error ? error.message : String(error) },
     });
     return {
       ok: false,
@@ -552,16 +633,17 @@ export async function sendOperationalSummary() {
         : error instanceof Error
           ? error.message
           : "Não foi possível enviar o resumo operacional.",
-      selected_count: selected.length,
+      selected_count: summaryItems.length,
       sent_count: 0,
       recipients: recipients.length,
       recipient_source: recipientSource,
+      totals,
       items,
       preview: message,
     };
   }
 
-  for (const item of selected) {
+  for (const item of pendingSelected) {
     await patchSent(item);
   }
   await logWhatsappMessage({
@@ -579,17 +661,18 @@ export async function sendOperationalSummary() {
     message,
     status: "sent",
     source: "sistema",
-    payload_json: { selected_count: selected.length, recipients: recipients.length, items },
+    payload_json: { selected_count: summaryItems.length, recipients: recipients.length, totals, items },
   });
 
   return {
     ok: true,
     dry_run: false,
     message: "Resumo operacional enviado para WhatsApp.",
-    selected_count: selected.length,
+    selected_count: summaryItems.length,
     sent_count: recipients.length,
     recipients: recipients.length,
     recipient_source: recipientSource,
+    totals,
     items,
     preview: message,
   };
