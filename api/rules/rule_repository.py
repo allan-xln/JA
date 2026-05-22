@@ -93,6 +93,23 @@ def toggle_rule(rule_id: str) -> dict[str, Any]:
     return update_rule(rule_id, {"enabled": not bool(rule.get("enabled"))})
 
 
+def delete_rule(rule_id: str) -> dict[str, Any]:
+    global _enabled_rules_cache
+    rule = get_rule(rule_id)
+    if not rule:
+        raise KeyError(rule_id)
+
+    try:
+        supabase.patch("eletrofrio_rule_evaluations", {"rule_id": rule_id}, {"rule_id": None})
+        rows = supabase.delete("eletrofrio_operational_rules", {"id": rule_id})
+    except SupabaseError as exc:
+        raise RuntimeError(RULE_SCHEMA_MESSAGE) from exc
+
+    _enabled_rules_cache = None
+    deleted = normalize_rule(rows[0]) if rows else rule
+    return {"deleted": True, "rule": deleted}
+
+
 def apply_default_rules() -> dict[str, Any]:
     global _enabled_rules_cache
     applied = 0

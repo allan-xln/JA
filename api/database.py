@@ -102,5 +102,10 @@ class SupabaseClient:
         result = self._request("PATCH", table, params=params, json=data)
         return result if isinstance(result, list) else []
 
+    def delete(self, table: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
+        params = {key: f"eq.{value}" for key, value in filters.items()}
+        result = self._request("DELETE", table, params=params)
+        return result if isinstance(result, list) else []
+
 
 supabase = SupabaseClient()

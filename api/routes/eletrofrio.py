@@ -24,6 +24,7 @@ from api.rules.rule_repository import (
     apply_default_rules,
     create_rule,
     default_rules_preview,
+    delete_rule,
     get_rule,
     list_rule_evaluations,
     list_rules,
@@ -226,6 +227,17 @@ def eletrofrio_rules_toggle(rule_id: str):
     require_supabase()
     try:
         return toggle_rule(rule_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Regra operacional não encontrada.") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc) or RULE_SCHEMA_MESSAGE) from exc
+
+
+@router.delete("/rules/{rule_id}")
+def eletrofrio_rules_delete(rule_id: str):
+    require_supabase()
+    try:
+        return delete_rule(rule_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Regra operacional não encontrada.") from exc
     except RuntimeError as exc:
