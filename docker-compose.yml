@@ -79,11 +79,13 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+        SERVER_API_URL: http://api:8000
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_API_BASE_URL: ""
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      SERVER_API_URL: http://api:8000
+      NEXT_PUBLIC_API_URL: ""
+      NEXT_PUBLIC_API_BASE_URL: ""
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:

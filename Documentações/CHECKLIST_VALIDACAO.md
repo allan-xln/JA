@@ -14,7 +14,7 @@ Use esta lista após atualizar o schema do Supabase ou reiniciar o ambiente Dock
 ## Docker
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 docker compose up -d --build
 docker compose ps
 ```

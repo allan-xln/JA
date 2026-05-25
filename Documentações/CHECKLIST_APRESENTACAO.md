@@ -4,7 +4,7 @@ Use este roteiro antes da apresentação para deixar a demo previsível, profiss
 
 ## Antes de Apresentar
 
-- [ ] Estar na pasta correta: `/home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA`.
+- [ ] Estar na pasta correta: `/caminho/onde/voce/clonou/JA`.
 - [ ] Confirmar `.env` preenchido com `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`.
 - [ ] Confirmar se `OPENAI_API_KEY` está ativa ou assumir fallback local por regras.
 - [ ] Para demonstração segura, usar `WHATSAPP_DRY_RUN=true` se não quiser envio real.
@@ -15,7 +15,7 @@ Use este roteiro antes da apresentação para deixar a demo previsível, profiss
 ## Subir a Plataforma
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 make demo-up
 ```
 

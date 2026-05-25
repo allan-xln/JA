@@ -404,7 +404,7 @@ Quando ativar futuramente, so abre chamado se:
 Prepare o ambiente Docker sem chaves reais no repositorio:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 cp .env.docker.example .env
 nano .env
 ```

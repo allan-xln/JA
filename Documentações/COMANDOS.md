@@ -3,7 +3,7 @@
 ## Ambiente
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 conda activate eletrofrio-ai
 ```
 
@@ -187,7 +187,7 @@ A tela Centro Operacional mostra o snapshot consolidado do Supabase, o diagnóst
 Rodar localmente:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA/Frontend/JA-IA-ELETROFRIO
+cd /caminho/onde/voce/clonou/JA/Frontend/JA-IA-ELETROFRIO
 npm run dev
 ```
 
@@ -214,7 +214,7 @@ http://localhost:3000
 Rodar serviço:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA/whatsapp
+cd /caminho/onde/voce/clonou/JA/whatsapp
 npm run dev
 ```
 
@@ -343,7 +343,7 @@ curl http://127.0.0.1:8000/api/eletrofrio/assistant/suggestions
 Preparar `.env`:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 cp .env.docker.example .env
 nano .env
 ```
@@ -428,7 +428,7 @@ Correção de ambiente existente:
 Abrir a migration localmente:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 sed -n '1,260p' sql/002_collector_runtime_schema.sql
 ```
 

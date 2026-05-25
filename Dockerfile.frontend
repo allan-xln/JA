@@ -6,9 +6,11 @@ RUN npm ci
 FROM node:22-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+ARG SERVER_API_URL=http://api:8000
+ARG NEXT_PUBLIC_API_URL=
+ARG NEXT_PUBLIC_API_BASE_URL=
+ENV SERVER_API_URL=$SERVER_API_URL \
+    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY Frontend/JA-IA-ELETROFRIO ./
@@ -17,7 +19,8 @@ RUN npm run build
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1
+    NEXT_TELEMETRY_DISABLED=1 \
+    SERVER_API_URL=http://api:8000
 RUN apk add --no-cache curl
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/.next ./.next

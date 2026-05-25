@@ -15,7 +15,7 @@ Todos os containers entram na rede bridge `eletrofrio-net`.
 
 - API chama WhatsApp por `http://whatsapp:8091`.
 - WhatsApp chama API por `http://api:8000`.
-- Browser chama API por `http://localhost:8000`.
+- Browser chama API por rota relativa `/api`, com proxy do Next.js para `SERVER_API_URL`.
 - Browser abre frontend por `http://localhost:3000`.
 
 ## Volumes
@@ -31,7 +31,7 @@ Nao existe volume de banco porque os dados reais ficam no Supabase.
 Prepare o `.env` Docker a partir do exemplo:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 cp .env.docker.example .env
 nano .env
 ```
@@ -49,7 +49,8 @@ No Docker, mantenha:
 ```env
 WHATSAPP_SERVICE_URL=http://whatsapp:8091
 ELETROFRIO_API_URL=http://api:8000
-NEXT_PUBLIC_API_URL=http://localhost:8000
+SERVER_API_URL=http://api:8000
+NEXT_PUBLIC_API_URL=
 ELETROFRIO_START_INTERNAL_SCHEDULER=false
 ```
 
@@ -65,7 +66,7 @@ ELETROFRIO_API_URL=http://127.0.0.1:8000
 Backend:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 conda activate eletrofrio-ai
 uvicorn api.main:app --reload
 ```
@@ -73,7 +74,7 @@ uvicorn api.main:app --reload
 Collector ou scheduler:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 conda activate eletrofrio-ai
 python -m api.collector
 # ou
@@ -83,14 +84,14 @@ python -m api.scheduler
 Frontend:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA/Frontend/JA-IA-ELETROFRIO
+cd /caminho/onde/voce/clonou/JA/Frontend/JA-IA-ELETROFRIO
 npm run dev
 ```
 
 WhatsApp:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA/whatsapp
+cd /caminho/onde/voce/clonou/JA/whatsapp
 npm run dev
 ```
 
@@ -163,7 +164,7 @@ Abra:
 http://localhost:3000
 ```
 
-A tela usa `NEXT_PUBLIC_API_URL=http://localhost:8000`, pois as chamadas partem do browser.
+A tela usa chamadas relativas em `/api`; o Next.js encaminha para `SERVER_API_URL=http://api:8000` no Docker.
 
 ## Testar WhatsApp
 
@@ -215,7 +216,7 @@ curl http://127.0.0.1:8000/api/eletrofrio/assistant/suggestions
 ## Troubleshooting
 
 - `Supabase não configurado`: confira `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`.
-- Frontend sem dados: confirme `NEXT_PUBLIC_API_URL=http://localhost:8000`.
+- Frontend sem dados: confirme `SERVER_API_URL=http://api:8000` e deixe `NEXT_PUBLIC_API_URL` vazio no Docker.
 - API nao chama WhatsApp: confirme `WHATSAPP_SERVICE_URL=http://whatsapp:8091`.
 - WhatsApp nao consulta IA: confirme `ELETROFRIO_API_URL=http://api:8000`.
 - QR nao aparece: rode `docker compose logs -f whatsapp` e confira `WHATSAPP_ENABLED=true`.

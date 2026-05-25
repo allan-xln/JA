@@ -14,7 +14,7 @@ Use este checklist antes da demo para reduzir risco operacional e deixar o rotei
 ## Subir Backend
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 conda activate eletrofrio-ai
 uvicorn api.main:app --reload
 ```
@@ -31,7 +31,7 @@ curl http://127.0.0.1:8000/api/eletrofrio/overview
 Collector manual:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 conda activate eletrofrio-ai
 python -m api.collector
 ```
@@ -39,7 +39,7 @@ python -m api.collector
 Scheduler:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 conda activate eletrofrio-ai
 python -m api.scheduler
 ```
@@ -56,7 +56,7 @@ Validar no Supabase:
 ## Subir WhatsApp
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA/whatsapp
+cd /caminho/onde/voce/clonou/JA/whatsapp
 npm run dev
 ```
 
@@ -77,7 +77,7 @@ curl http://127.0.0.1:8000/api/eletrofrio/whatsapp/qr
 ## Subir Frontend
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA/Frontend/JA-IA-ELETROFRIO
+cd /caminho/onde/voce/clonou/JA/Frontend/JA-IA-ELETROFRIO
 npm run dev
 ```
 

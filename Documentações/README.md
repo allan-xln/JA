@@ -335,7 +335,7 @@ Princípios:
 ### Terminal 1 - Backend
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 conda activate eletrofrio-ai
 uvicorn api.main:app --reload
 ```
@@ -345,7 +345,7 @@ uvicorn api.main:app --reload
 Coleta manual:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 conda activate eletrofrio-ai
 python -m api.collector
 ```
@@ -353,7 +353,7 @@ python -m api.collector
 Scheduler:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 conda activate eletrofrio-ai
 python -m api.scheduler
 ```
@@ -361,14 +361,14 @@ python -m api.scheduler
 ### Terminal 3 - Frontend
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA/Frontend/JA-IA-ELETROFRIO
+cd /caminho/onde/voce/clonou/JA/Frontend/JA-IA-ELETROFRIO
 npm run dev
 ```
 
 ### Terminal 4 - WhatsApp
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA/whatsapp
+cd /caminho/onde/voce/clonou/JA/whatsapp
 npm run dev
 ```
 
@@ -377,7 +377,7 @@ npm run dev
 Prepare o `.env`:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 cp .env.docker.example .env
 nano .env
 ```

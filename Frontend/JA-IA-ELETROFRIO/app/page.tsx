@@ -29,7 +29,6 @@ import type {
   CollectorSettings,
   DeviceMetric,
   EletrofrioAlarm,
-  EletrofrioAnomaly,
   EletrofrioDevice,
   EletrofrioInsight,
   EletrofrioOverview,
@@ -104,41 +103,55 @@ function severityLabel(value: string) {
   return "Informativo";
 }
 
-function alarmTypeView(type: string) {
-  const code = type?.trim().toUpperCase();
-  const labels: Record<string, { label: string; helper: string; bar: string }> = {
-    A: {
-      label: "Crítico",
-      helper: "exige ação primeiro",
-      bar: "bg-red-300",
-    },
-    C: {
-      label: "Crítico",
-      helper: "condição crítica",
-      bar: "bg-red-300",
-    },
-    M: {
-      label: "Atenção",
-      helper: "acompanhar e validar",
-      bar: "bg-amber-300",
-    },
-    I: {
-      label: "Informativo",
-      helper: "registro operacional",
-      bar: "bg-sky-300",
-    },
-    B: {
-      label: "Baixa prioridade",
-      helper: "sem urgência imediata",
-      bar: "bg-slate-300",
-    },
-  };
-
-  return labels[code] || {
-    label: code ? `Tipo ${code}` : "Sem classificação",
-    helper: "classificação recebida da origem",
+const ALARM_PRIORITY_BUCKETS = [
+  {
+    priority: "A",
+    label: "Crítica",
+    helper: "Atender primeiro",
+    codes: ["A", "C"],
+    bar: "bg-red-300",
+  },
+  {
+    priority: "B",
+    label: "Atenção",
+    helper: "Validar ainda hoje",
+    codes: ["M"],
+    bar: "bg-amber-300",
+  },
+  {
+    priority: "C",
+    label: "Monitoramento",
+    helper: "Acompanhar evolução",
+    codes: ["B"],
     bar: "bg-sky-300",
-  };
+  },
+  {
+    priority: "D",
+    label: "Informativa",
+    helper: "Registro operacional",
+    codes: ["I"],
+    bar: "bg-slate-300",
+  },
+] as const;
+
+const KNOWN_ALARM_TYPE_CODES: ReadonlySet<string> = new Set(ALARM_PRIORITY_BUCKETS.flatMap((bucket) => bucket.codes));
+
+function alarmPriorityBreakdown(alarmsByType: Record<string, number>) {
+  const normalized: Record<string, number> = Object.fromEntries(
+    Object.entries(alarmsByType).map(([type, count]) => [type.trim().toUpperCase(), Number(count || 0)]),
+  );
+  const unknownCodes = Object.keys(normalized).filter((code) => code && !KNOWN_ALARM_TYPE_CODES.has(code));
+
+  return ALARM_PRIORITY_BUCKETS.map((bucket) => {
+    const sourceCodes = bucket.priority === "D" ? [...bucket.codes, ...unknownCodes] : [...bucket.codes];
+    const count = sourceCodes.reduce((sum, code) => sum + (normalized[code] || 0), 0);
+
+    return {
+      ...bucket,
+      sourceCodes,
+      count,
+    };
+  });
 }
 
 function evidencePreview(evidence: Record<string, unknown> | null) {
@@ -188,11 +201,50 @@ function evidenceLevelLabel(value?: string | null) {
   return labels[String(value || "").toLowerCase()] || "Operacional";
 }
 
-function operationalScoreLabel(value: number | null) {
-  if (value == null) return "Sem pontuação";
-  if (value >= 80) return `${value} / 100 - prioridade alta`;
-  if (value >= 55) return `${value} / 100 - atenção`;
-  return `${value} / 100 - baixa prioridade`;
+function operationalPriorityView(value: number | null) {
+  if (value == null) {
+    return {
+      label: "Prioridade não calculada",
+      helper: "Sem dados suficientes",
+      scoreText: "-",
+      percent: 0,
+      tone: "border-white/10 bg-black/15 text-white/65",
+      bar: "bg-white/30",
+    };
+  }
+
+  const score = Math.max(0, Math.min(100, Math.round(value)));
+
+  if (score >= 80) {
+    return {
+      label: "Prioridade alta",
+      helper: "Atender primeiro",
+      scoreText: `${score} pontos`,
+      percent: score,
+      tone: "border-red-300/25 bg-red-300/10 text-red-100",
+      bar: "bg-red-300",
+    };
+  }
+
+  if (score >= 55) {
+    return {
+      label: "Prioridade média",
+      helper: "Acompanhar hoje",
+      scoreText: `${score} pontos`,
+      percent: score,
+      tone: "border-amber-300/25 bg-amber-300/10 text-amber-100",
+      bar: "bg-amber-300",
+    };
+  }
+
+  return {
+    label: "Prioridade baixa",
+    helper: "Monitorar",
+    scoreText: `${score} pontos`,
+    percent: score,
+    tone: "border-sky-300/20 bg-sky-300/10 text-sky-100",
+    bar: "bg-sky-300",
+  };
 }
 
 function operationalSummaryText(insight: EletrofrioInsight) {
@@ -552,9 +604,10 @@ function DashboardView({
   whatsappConnected: boolean;
 }) {
   const totals = overview?.totals;
-  const alarmsByType = Object.entries(overview?.alarms_by_type || {});
-  const totalTypedAlarms = alarmsByType.reduce((sum, [, count]) => sum + Number(count || 0), 0);
-  const maxAlarmType = Math.max(1, ...alarmsByType.map(([, count]) => count));
+  const alarmsByType = overview?.alarms_by_type || {};
+  const alarmPriorityRows = alarmPriorityBreakdown(alarmsByType);
+  const totalTypedAlarms = alarmPriorityRows.reduce((sum, item) => sum + item.count, 0);
+  const maxAlarmType = Math.max(1, ...alarmPriorityRows.map((item) => item.count));
   const topStore = overview?.most_critical_stores?.[0];
   const latestInsights = overview?.latest_insights || [];
 
@@ -619,21 +672,30 @@ function DashboardView({
               {totalTypedAlarms || totals?.alarms || 0} alarmes
             </div>
           </div>
-          {alarmsByType.length ? (
+          {totalTypedAlarms ? (
             <div className="space-y-4">
-              {alarmsByType.map(([type, count]) => {
-                const item = alarmTypeView(type);
-                const percent = Math.max(6, (count / maxAlarmType) * 100);
+              {alarmPriorityRows.map((item) => {
+                const percent = item.count > 0 ? Math.max(6, (item.count / maxAlarmType) * 100) : 0;
 
                 return (
-                  <div key={type}>
+                  <div key={item.priority}>
                     <div className="mb-2 flex items-center justify-between gap-4 text-sm">
-                      <div>
-                        <span className="font-semibold text-white">{item.label}</span>
-                        <span className="ml-2 text-xs text-white/45">código {type || "-"}</span>
-                        <p className="mt-0.5 text-xs text-white/45">{item.helper}</p>
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.06] text-base font-bold text-white">
+                          {item.priority}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-white">Prioridade {item.priority}</span>
+                            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-white/65">{item.label}</span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-white/45">{item.helper}</p>
+                          <p className="mt-0.5 text-xs text-white/35">
+                            códigos: {item.sourceCodes.length ? item.sourceCodes.join(", ") : "-"}
+                          </p>
+                        </div>
                       </div>
-                      <span className="text-base font-semibold text-white">{count}</span>
+                      <span className="text-base font-semibold text-white">{item.count}</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-white/8">
                       <div
@@ -1116,6 +1178,7 @@ function InsightsView({ insights }: { insights: EletrofrioInsight[] }) {
         {filteredInsights.length ? (
           filteredInsights.map((insight) => {
             const analysis = occurrenceAnalysis(insight);
+            const priority = operationalPriorityView(analysis.score);
             return (
               <article key={insight.id} className={`rounded-xl border p-3 sm:p-4 ${severityTone[insight.severity] || severityTone.info}`}>
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1127,9 +1190,16 @@ function InsightsView({ insights }: { insights: EletrofrioInsight[] }) {
                       <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs">
                         Confiança {analysis.confidence}
                       </span>
-                      <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs">
-                        {operationalScoreLabel(analysis.score)}
-                      </span>
+                      <div className={`min-w-[190px] rounded-lg border px-3 py-2 ${priority.tone}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs font-semibold">{priority.label}</span>
+                          <span className="text-[11px] opacity-80">{priority.scoreText}</span>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/25">
+                          <div className={`h-full rounded-full ${priority.bar}`} style={{ width: `${priority.percent}%` }} />
+                        </div>
+                        <p className="mt-1 text-[11px] opacity-80">{priority.helper}</p>
+                      </div>
                     </div>
                     <h3 className="mt-3 text-xl font-semibold">{analysis.problemType}</h3>
                     <p className="mt-2 text-sm opacity-75">
@@ -2332,112 +2402,9 @@ function InfoTile({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function QuickDiagnosisCard() {
-  const [question, setQuestion] = useState("Resumo da operação");
-  const [answer, setAnswer] = useState<AssistantAnswer | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const shortcuts = [
-    "Resumo da operação",
-    "Lojas críticas",
-    "Equipamentos críticos",
-    "Ocorrências abertas",
-  ];
-
-  const ask = async (nextQuestion = question) => {
-    const trimmed = nextQuestion.trim();
-    if (trimmed.length < 4) {
-      setError("Digite uma consulta mais específica.");
-      return;
-    }
-    try {
-      setBusy(true);
-      setError(null);
-      const result = await eletrofrioApi.assistantQuery(trimmed);
-      setAnswer(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível consultar a operação.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Panel>
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/45">Diagnóstico rápido</p>
-          <h3 className="mt-2 text-xl font-semibold">Consulta operacional</h3>
-          <p className="mt-2 text-sm text-white/60">Consulte a operação usando os dados mais recentes.</p>
-        </div>
-        {answer ? (
-          <span className="rounded-md border border-sky-400/20 bg-sky-400/10 px-3 py-1.5 text-xs font-semibold text-sky-100">
-            Confiança {Math.round(answer.confidence * 100)}%
-          </span>
-        ) : null}
-      </div>
-
-      {error ? <div className="mt-4 rounded-xl border border-red-400/25 bg-red-400/10 p-3 text-sm text-red-100">{error}</div> : null}
-
-      <div className="mt-5 grid gap-3">
-        <div className="flex flex-col gap-3 md:flex-row">
-          <input
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-sky-300/40"
-          />
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void ask()}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/15 disabled:opacity-60"
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Consultar
-          </button>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {shortcuts.map((item) => (
-            <button
-              key={item}
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setQuestion(item);
-                void ask(item);
-              }}
-              className="rounded-md border border-white/10 bg-white/[0.045] px-3 py-2 text-xs font-semibold text-white/65 transition hover:bg-white/[0.07]"
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {answer ? (
-        <div className="mt-5 rounded-xl border border-white/10 bg-black/15 p-4">
-          <p className="whitespace-pre-line text-sm leading-6 text-white/82">{compactText(answer.answer, "-", 520)}</p>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <div>
-              <p className="text-xs uppercase tracking-[0.14em] text-white/40">Fontes</p>
-              <p className="mt-2 text-sm text-white/65">{answer.sources.slice(0, 3).map((source) => source.label).join(", ") || "Sem fonte direta."}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.14em] text-white/40">Avisos</p>
-              <p className="mt-2 text-sm text-white/65">{answer.warnings.slice(0, 2).join(" ") || "Sem avisos relevantes."}</p>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </Panel>
-  );
-}
-
 function OperationView() {
   const [settings, setSettings] = useState<CollectorSettings | null>(null);
   const [runs, setRuns] = useState<CollectorRun[]>([]);
-  const [anomalies, setAnomalies] = useState<EletrofrioAnomaly[]>([]);
   const [operationOverview, setOperationOverview] = useState<EletrofrioOverview | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [intervalMinutes, setIntervalMinutes] = useState(5);
@@ -2465,11 +2432,6 @@ function OperationView() {
   });
   const usefulRuns = cleanRuns.filter(isUsefulRun);
   const visibleRuns = (showTechnicalFailures ? cleanRuns : usefulRuns).slice(0, 5);
-  const priorityAnomalies = [...anomalies].sort(
-    (a, b) => (severityRankForUi(b.severity) - severityRankForUi(a.severity))
-  );
-  const relevantAnomalies = priorityAnomalies.slice(0, 5);
-  const criticalAnomalies = anomalies.filter((item) => severityRankForUi(item.severity) >= 3).length;
   const collectionForSummary = lastManualCollection || (lastGoodRun
     ? {
         status: lastGoodRun.status,
@@ -2484,11 +2446,10 @@ function OperationView() {
   const loadAutomation = async () => {
     setError(null);
 
-    const [statusResult, overviewResult, runsResult, anomaliesResult] = await Promise.all([
+    const [statusResult, overviewResult, runsResult] = await Promise.all([
       eletrofrioApi.collectorStatus().catch(() => null),
       eletrofrioApi.overview().catch(() => null),
       eletrofrioApi.collectorRuns(12).catch(() => ({ items: [] as CollectorRun[] })),
-      eletrofrioApi.collectorAnomalies(30, "open").catch(() => ({ items: [] as EletrofrioAnomaly[] })),
     ]);
 
     if (statusResult) {
@@ -2503,7 +2464,6 @@ function OperationView() {
       setOperationOverview(overviewResult);
     }
     setRuns(runsResult.items);
-    setAnomalies(anomaliesResult.items);
   };
 
   useEffect(() => {
@@ -2562,7 +2522,7 @@ function OperationView() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-2xl font-semibold md:text-3xl">Centro Operacional</h1>
-            <p className="mt-1 text-sm text-white/60">Coleta, ocorrências e comunicação em uma tela.</p>
+            <p className="mt-1 text-sm text-white/60">Coleta, automação e histórico de sincronização em uma tela.</p>
           </div>
           <button type="button" onClick={() => void loadAutomation()} disabled={busy} className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm font-semibold text-white/75 transition hover:bg-white/[0.07] disabled:opacity-60">
             <RefreshCw className="h-4 w-4" />
@@ -2574,7 +2534,7 @@ function OperationView() {
       {error ? <ErrorBanner message={error} /> : null}
       {message ? <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm text-emerald-100">{message}</div> : null}
 
-      <section className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
         <StatusCard label="API Eletrofrio" value={operationOverview ? "Operacional" : "Validando"} tone={operationOverview ? "success" : "warning"} />
         <StatusCard
           label="Coleta"
@@ -2582,8 +2542,6 @@ function OperationView() {
           tone={busy || actuallyRunning ? "warning" : lastGoodRun ? "success" : settings?.enabled ? "success" : "muted"}
         />
         <StatusCard label="Último snapshot" value={lastGoodRun ? formatDate(lastGoodRun.finished_at || lastGoodRun.started_at) : "Sem coleta"} tone={lastGoodRun ? "success" : "warning"} />
-        <StatusCard label="Ocorrências abertas" value={anomalies.length} tone={criticalAnomalies ? "danger" : anomalies.length ? "warning" : "success"} />
-        <StatusCard label="Anomalias críticas" value={criticalAnomalies} tone={criticalAnomalies ? "danger" : "success"} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(360px,0.85fr)_minmax(0,1.15fr)]">
@@ -2669,7 +2627,6 @@ function OperationView() {
                 <InfoTile label="Lojas analisadas" value={collectionForSummary.units ?? 0} />
                 <InfoTile label="Alarmes encontrados" value={collectionForSummary.alarms ?? 0} />
                 <InfoTile label="Telemetrias processadas" value={collectionForSummary.telemetry ?? 0} />
-                <InfoTile label="Ocorrências relevantes" value={collectionForSummary.anomalies_count ?? anomalies.length} />
                 <InfoTile label="Horário da coleta" value={formatDate(collectionForSummary.collectedAt)} />
                 <InfoTile label="Status" value={collectionForSummary.status === "partial_success" ? "concluída com cache" : "concluída"} />
               </div>
@@ -2697,7 +2654,7 @@ function OperationView() {
                     </div>
                     <div className="text-white/65 md:text-right">
                       <p>{run.units_count} lojas / {run.alarms_count} alarmes</p>
-                      <p>{run.telemetry_count} telemetrias / {run.anomalies_count ?? 0} anomalias</p>
+                      <p>{run.telemetry_count} telemetrias</p>
                     </div>
                   </div>
                 ))
@@ -2745,48 +2702,13 @@ function OperationView() {
                 </div>
               ) : collectionForSummary ? (
                 <div className="grid gap-4">
-                  <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
                     <InfoTile label="Lojas" value={collectionForSummary.units ?? 0} />
                     <InfoTile label="Alarmes" value={collectionForSummary.alarms ?? 0} />
                     <InfoTile label="Telemetrias" value={collectionForSummary.telemetry ?? 0} />
-                    <InfoTile label="Ocorrências" value={collectionForSummary.anomalies_count ?? anomalies.length} />
-                  </div>
-
-                  <div>
-                    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-white">Ocorrências relevantes</p>
-                        <p className="mt-1 text-xs text-white/45">Mostrando no máximo 5 prioridades da última leitura.</p>
-                      </div>
-                      <span className="text-xs text-white/45">{formatDate(collectionForSummary.collectedAt)}</span>
-                    </div>
-
-                    <div className="grid gap-3">
-                      {relevantAnomalies.length ? (
-                        relevantAnomalies.map((anomaly) => (
-                          <article key={anomaly.id} className={`rounded-xl border p-3 sm:p-4 ${severityTone[anomaly.severity] || severityTone.warning}`}>
-                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="rounded-md bg-black/20 px-2.5 py-1 text-xs font-semibold">{severityLabel(anomaly.severity)}</span>
-                                </div>
-                                <h4 className="mt-3 font-semibold">{anomaly.tag || `Dispositivo ${anomaly.equipment_id ?? "-"}`}</h4>
-                                <p className="mt-1 text-sm opacity-75">{anomaly.loja_nome || `Loja ${anomaly.loja_id ?? "-"}`}</p>
-                              </div>
-                              <span className="rounded-md bg-black/15 px-3 py-1 text-xs">
-                                {operationalScoreLabel(evidenceNumber(anomaly.evidence_json || anomaly.metadata, "operational_score"))}
-                              </span>
-                            </div>
-                            <p className="mt-3 text-sm leading-6 opacity-90">{compactText(anomaly.technical_reason || anomaly.message, "Ocorrência operacional aberta.", 170)}</p>
-                            <p className="mt-3 text-sm leading-6 opacity-90">
-                              <span className="font-semibold">Primeira ação:</span> {compactText(anomaly.recommended_action, "Validar evidências antes de acionar manutenção.", 160)}
-                            </p>
-                          </article>
-                        ))
-                      ) : (
-                        <EmptyState text="Coleta finalizada sem ocorrência relevante." />
-                      )}
-                    </div>
+                    <InfoTile label="Atualização" value={formatDate(collectionForSummary.collectedAt)} />
+                    <InfoTile label="Status" value={collectionForSummary.status === "partial_success" ? "Com cache" : "Concluída"} />
+                    <InfoTile label="Origem" value={lastManualCollection ? "Manual" : triggerSourceLabel(lastGoodRun?.trigger_source)} />
                   </div>
                 </div>
               ) : (
@@ -2794,8 +2716,6 @@ function OperationView() {
               )}
             </div>
           </Panel>
-
-          <QuickDiagnosisCard />
         </div>
       </section>
     </div>

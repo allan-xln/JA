@@ -457,7 +457,7 @@ curl -X POST http://127.0.0.1:8000/api/eletrofrio/rules/evaluate
 Prepare o ambiente Docker sem chaves reais no repositorio:
 
 ```bash
-cd /home/allan/Documentos/Projetcs/LanChat/ELETROFRIO/JA
+cd /caminho/onde/voce/clonou/JA
 cp .env.docker.example .env
 nano .env
 ```
