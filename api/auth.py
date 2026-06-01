@@ -156,6 +156,20 @@ def _demo_user_by_id(user_id: str | None, store: dict[str, Any] | None = None) -
     return None
 
 
+def _demo_customer_for_user(user: dict[str, Any], store: dict[str, Any]) -> dict[str, Any] | None:
+    customer_id = str(user.get("customer_id") or "")
+    username = str(user.get("username") or "").casefold()
+    customer_name = str(user.get("customer_name") or "").casefold()
+    for customer in store.get("customers", []):
+        if customer_id and str(customer.get("id")) == customer_id:
+            return customer
+        if username and str(customer.get("slug") or "").casefold() == username:
+            return customer
+        if customer_name and str(customer.get("name") or "").casefold() == customer_name:
+            return customer
+    return None
+
+
 def _customer_name(customer_id: str | None, store: dict[str, Any] | None = None) -> str | None:
     if not customer_id:
         return None
@@ -194,6 +208,25 @@ def scope_for_user(user: dict[str, Any], store: dict[str, Any] | None = None) ->
         store = store or _load_demo_store()
         unit_rows = [row for row in store.get("customer_units", []) if str(row.get("customer_id")) == str(customer_id)]
         device_rows = [row for row in store.get("customer_devices", []) if str(row.get("customer_id")) == str(customer_id)]
+
+    if not unit_rows or not device_rows:
+        store = store or _load_demo_store()
+        fallback_customer = _demo_customer_for_user(user, store)
+        fallback_customer_id = str(fallback_customer.get("id")) if fallback_customer else ""
+        if fallback_customer_id:
+            if not unit_rows:
+                unit_rows = [
+                    row
+                    for row in store.get("customer_units", [])
+                    if str(row.get("customer_id")) == fallback_customer_id
+                ]
+            if not device_rows:
+                device_rows = [
+                    row
+                    for row in store.get("customer_devices", [])
+                    if str(row.get("customer_id")) == fallback_customer_id
+                ]
+            customer_name = customer_name or fallback_customer.get("name")
 
     for row in unit_rows:
         try:
