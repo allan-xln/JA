@@ -146,6 +146,16 @@ def _demo_user(username: str) -> dict[str, Any] | None:
     return None
 
 
+def _demo_user_by_id(user_id: str | None, store: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    if not user_id:
+        return None
+    store = store or _load_demo_store()
+    for user in store.get("users", []):
+        if str(user.get("id")) == str(user_id) and user.get("is_active", True):
+            return user
+    return None
+
+
 def _customer_name(customer_id: str | None, store: dict[str, Any] | None = None) -> str | None:
     if not customer_id:
         return None
@@ -265,8 +275,10 @@ def _user_from_session_hash(token_hash: str) -> AuthUser | None:
     except SupabaseError as exc:
         if not _schema_missing(exc):
             logger.warning("Falha ao carregar sessao no Supabase: %s", exc)
+    if not session:
         session = _memory_sessions.get(token_hash)
-        store = _load_demo_store()
+        if session:
+            store = _load_demo_store()
 
     if not session:
         return None
@@ -292,6 +304,9 @@ def _user_from_session_hash(token_hash: str) -> AuthUser | None:
             if not _schema_missing(exc):
                 logger.warning("Falha ao carregar usuario da sessao: %s", exc)
             user_row = None
+        if not user_row:
+            store = store or _load_demo_store()
+            user_row = _demo_user_by_id(str(session.get("user_id") or ""), store)
     if not user_row:
         return None
 
