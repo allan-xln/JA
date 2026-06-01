@@ -616,9 +616,6 @@ function DashboardView({
       <Panel className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold md:text-3xl">Visão geral</h1>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-white/60">
-            Lojas, equipamentos e ocorrências em um painel direto.
-          </p>
         </div>
         <div className="flex flex-wrap gap-3">
           <button
@@ -664,9 +661,6 @@ function DashboardView({
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-xl font-semibold">Prioridade dos alarmes</h3>
-              <p className="mt-1 text-sm text-white/55">
-                Leitura rápida do que precisa de ação primeiro.
-              </p>
             </div>
             <div className="rounded-md border border-white/10 bg-white/[0.055] px-3 py-2 text-sm font-semibold text-white/70">
               {totalTypedAlarms || totals?.alarms || 0} alarmes
@@ -713,10 +707,7 @@ function DashboardView({
         </Panel>
 
         <Panel>
-          <p className="text-xs uppercase tracking-[0.2em] text-white/45">
-            Ponto de atenção
-          </p>
-          <h3 className="mt-2 text-xl font-semibold">
+          <h3 className="text-xl font-semibold">
             {topStore?.loja_nome || "Operação sem concentração relevante"}
           </h3>
           <p className="mt-3 text-sm leading-6 text-white/60">
@@ -725,7 +716,7 @@ function DashboardView({
               : "Nenhuma loja aparece com concentração crítica no momento."}
           </p>
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-            <p className="text-sm text-white/55">Canal operacional</p>
+            <p className="text-sm text-white/55">WhatsApp</p>
             <p className={`mt-2 text-lg font-semibold ${whatsappConnected ? "text-emerald-300" : "text-amber-300"}`}>
               {whatsappConnected ? "Online" : "Aguardando QR"}
             </p>
@@ -744,10 +735,7 @@ function DashboardView({
 function TopStores({ stores }: { stores: StoreMetric[] }) {
   return (
     <Panel>
-      <p className="text-xs uppercase tracking-[0.2em] text-white/45">
-        Priorização de campo
-      </p>
-      <h3 className="mt-2 text-xl font-semibold">Lojas com maior atenção</h3>
+      <h3 className="text-xl font-semibold">Lojas com maior atenção</h3>
       <div className="mt-5 space-y-3">
         {stores.length ? (
           stores.slice(0, 6).map((store) => (
@@ -773,10 +761,7 @@ function TopStores({ stores }: { stores: StoreMetric[] }) {
 function LatestInsights({ insights }: { insights: EletrofrioInsight[] }) {
   return (
     <Panel>
-      <p className="text-xs uppercase tracking-[0.2em] text-white/45">
-        Histórico recente
-      </p>
-      <h3 className="mt-2 text-xl font-semibold">Registros operacionais</h3>
+      <h3 className="text-xl font-semibold">Registros operacionais</h3>
       <div className="mt-5 space-y-3">
         {insights.length ? (
           insights.slice(0, 5).map((insight) => (
@@ -847,16 +832,9 @@ function AssetsView({
     <div className="flex flex-col gap-6">
       <Panel className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-            Inventário operacional
-          </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">
+          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
             Ativos monitorados
           </h1>
-          <p className="mt-2 text-sm leading-6 text-white/60">
-            Visão consolidada dos equipamentos identificados, com recorrência de
-            ocorrências e última leitura disponível por ativo.
-          </p>
         </div>
         <label className="relative block w-full md:max-w-sm">
           <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
@@ -1052,9 +1030,6 @@ function InsightsView({ insights }: { insights: EletrofrioInsight[] }) {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold md:text-3xl">Ocorrências</h1>
-            <p className="mt-1 text-sm leading-6 text-white/60">
-              Triagem por criticidade, data, loja, equipamento e regra aplicada.
-            </p>
           </div>
           <div className="grid gap-3 lg:min-w-[640px]">
             <div className="grid gap-2 sm:grid-cols-4">
@@ -1320,15 +1295,9 @@ function AssistantView({ embedded = false }: { embedded?: boolean }) {
     <div className="flex flex-col gap-6">
       {!embedded ? (
         <Panel>
-        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-          Diagnóstico operacional
-        </p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">
-          Diagnóstico operacional
-        </h1>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-white/60">
-          Consulta técnica com fontes, evidências e recomendação para apoiar decisões rápidas em campo.
-        </p>
+          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+            Diagnóstico operacional
+          </h1>
         </Panel>
       ) : null}
 
@@ -1337,18 +1306,9 @@ function AssistantView({ embedded = false }: { embedded?: boolean }) {
       <Panel>
         <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
-              Diagnóstico operacional
-            </p>
-            <h3 className="mt-2 text-xl font-semibold">
+            <h3 className="text-xl font-semibold">
               Consulta de status e prioridade
             </h3>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/60">
-              Use perguntas guiadas para validar lojas, equipamentos, alarmes e prioridades dentro do fluxo de operação.
-            </p>
-          </div>
-          <div className="rounded-2xl border border-sky-400/20 bg-sky-400/[0.08] px-4 py-3 text-sm text-sky-100">
-            Fontes, confiança e recomendação
           </div>
         </div>
 
@@ -1640,10 +1600,7 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
       <Panel>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold md:text-3xl">Comunicação operacional</h1>
-            <p className="mt-1 text-sm leading-6 text-white/60">
-              Canal, mensagens, consultas respondidas e histórico auditável da operação.
-            </p>
+            <h1 className="text-2xl font-semibold md:text-3xl">WhatsApp</h1>
           </div>
           <button
             type="button"
@@ -1739,7 +1696,6 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h3 className="text-xl font-semibold">Conversas operacionais</h3>
-              <p className="mt-1 text-sm text-white/55">Perguntas, respostas, alertas, resumos e eventos do canal.</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:w-[420px]">
               <input value={communicationSearch} onChange={(event) => setCommunicationSearch(event.target.value)} placeholder="Buscar telefone, loja, tag..." className="rounded-xl border border-white/10 px-3 py-2 text-sm outline-none" />
@@ -1791,7 +1747,6 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-xl font-semibold">Consultas operacionais</h3>
-              <p className="mt-1 text-sm text-white/55">Perguntas respondidas com fontes, confiança e avisos.</p>
             </div>
             <span className="rounded-md border border-white/10 bg-white/[0.045] px-3 py-1.5 text-xs text-white/55">{ragHistory.length} registros</span>
           </div>
@@ -1822,7 +1777,6 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
 
         <Panel>
           <h3 className="text-xl font-semibold">Timeline operacional</h3>
-          <p className="mt-1 text-sm text-white/55">Eventos recentes do canal em ordem cronológica.</p>
           <div className="mt-5 grid gap-3">
             {timeline.length ? timeline.slice(0, 14).map((item) => (
               <div key={`${item.timeline_source || "event"}-${item.id}`} className="relative border-l border-white/10 pl-4">
@@ -2128,11 +2082,7 @@ function RulesView() {
       <Panel>
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Motor operacional</p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">Regras Operacionais</h1>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-white/60">
-              Cadastre limites, padrões de alarme e ações. Regras ativas entram na próxima avaliação de anomalias e nas respostas do bot.
-            </p>
+            <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Regras Operacionais</h1>
           </div>
           <div className="grid gap-2 sm:grid-cols-3 xl:min-w-[520px]">
             <InfoTile label="Ativas" value={`${activeRules}/${rules.length}`} />
@@ -2216,7 +2166,6 @@ function RulesView() {
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-white/45">{draftMode ? "Nova regra" : "Editar regra"}</p>
                   <h3 className="mt-2 text-xl font-semibold">{selectedRule.name || "Regra operacional"}</h3>
-                  <p className="mt-1 text-sm text-white/55">Salvar ou excluir aqui muda as próximas avaliações do motor e do bot.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button disabled={busy} onClick={() => void toggleRule(selectedRule)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold disabled:opacity-60 ${selectedRule.enabled ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/[0.055] text-white/70"}`}>
@@ -2522,7 +2471,6 @@ function OperationView() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-2xl font-semibold md:text-3xl">Centro Operacional</h1>
-            <p className="mt-1 text-sm text-white/60">Coleta, automação e histórico de sincronização em uma tela.</p>
           </div>
           <button type="button" onClick={() => void loadAutomation()} disabled={busy} className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm font-semibold text-white/75 transition hover:bg-white/[0.07] disabled:opacity-60">
             <RefreshCw className="h-4 w-4" />

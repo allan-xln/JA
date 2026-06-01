@@ -9,11 +9,11 @@ import {
 
 const items = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
-  { id: "ativos", label: "Ativos monitorados", icon: Snowflake },
+  { id: "ativos", label: "Ativos", icon: Snowflake },
   { id: "alertas", label: "Ocorrências", icon: AlertTriangle },
-  { id: "operacao", label: "Centro operacional", icon: ClipboardList },
-  { id: "regras", label: "Regras operacionais", icon: SlidersHorizontal },
-  { id: "whatsapp", label: "Comunicação operacional", icon: MessageCircle },
+  { id: "operacao", label: "Operação", icon: ClipboardList },
+  { id: "regras", label: "Regras", icon: SlidersHorizontal },
+  { id: "whatsapp", label: "WhatsApp", icon: MessageCircle },
 ] as const;
 
 export type ViewId = (typeof items)[number]["id"];

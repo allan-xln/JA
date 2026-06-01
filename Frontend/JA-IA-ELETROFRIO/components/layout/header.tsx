@@ -5,8 +5,8 @@ type HeaderProps = {
 };
 
 export function Header({
-  title = "Centro de Operações Eletrofrio",
-  subtitle = "Eletrofrio JA",
+  title = "Eletrofrio",
+  subtitle = "",
   connected,
 }: HeaderProps) {
   return (
@@ -16,7 +16,7 @@ export function Header({
           <h2 className="truncate text-lg font-semibold md:text-xl">
             {title}
           </h2>
-          <p className="mt-0.5 truncate text-xs text-slate-500">{subtitle}</p>
+          {subtitle ? <p className="mt-0.5 truncate text-xs text-slate-500">{subtitle}</p> : null}
         </div>
 
         <div className="shrink-0">
