@@ -106,31 +106,35 @@ function severityLabel(value: string) {
 
 const ALARM_PRIORITY_BUCKETS = [
   {
-    priority: "A",
-    label: "Crítica",
-    helper: "Atender primeiro",
+    action: "Atender agora",
+    label: "Risco alto",
+    helper: "Pode impactar produto, temperatura segura ou operação.",
     codes: ["A", "C"],
+    includeUnknown: false,
     bar: "bg-red-300",
   },
   {
-    priority: "B",
-    label: "Atenção",
-    helper: "Validar ainda hoje",
+    action: "Validar hoje",
+    label: "Requer atenção",
+    helper: "Precisa de conferência operacional no mesmo turno.",
     codes: ["M"],
+    includeUnknown: false,
     bar: "bg-amber-300",
   },
   {
-    priority: "C",
+    action: "Acompanhar",
     label: "Monitoramento",
-    helper: "Acompanhar evolução",
+    helper: "Observar recorrência antes de acionar manutenção.",
     codes: ["B"],
+    includeUnknown: false,
     bar: "bg-sky-300",
   },
   {
-    priority: "D",
-    label: "Informativa",
-    helper: "Registro operacional",
+    action: "Registrar",
+    label: "Informativo",
+    helper: "Sem ação imediata, mas útil para histórico.",
     codes: ["I"],
+    includeUnknown: true,
     bar: "bg-slate-300",
   },
 ] as const;
@@ -144,7 +148,7 @@ function alarmPriorityBreakdown(alarmsByType: Record<string, number>) {
   const unknownCodes = Object.keys(normalized).filter((code) => code && !KNOWN_ALARM_TYPE_CODES.has(code));
 
   return ALARM_PRIORITY_BUCKETS.map((bucket) => {
-    const sourceCodes = bucket.priority === "D" ? [...bucket.codes, ...unknownCodes] : [...bucket.codes];
+    const sourceCodes = bucket.includeUnknown ? [...bucket.codes, ...unknownCodes] : [...bucket.codes];
     const count = sourceCodes.reduce((sum, code) => sum + (normalized[code] || 0), 0);
 
     return {
@@ -205,8 +209,8 @@ function evidenceLevelLabel(value?: string | null) {
 function operationalPriorityView(value: number | null) {
   if (value == null) {
     return {
-      label: "Prioridade não calculada",
-      helper: "Sem dados suficientes",
+      label: "Sem urgência definida",
+      helper: "Ainda não há dados suficientes para ordenar essa ocorrência.",
       scoreText: "-",
       percent: 0,
       tone: "border-white/10 bg-black/15 text-white/65",
@@ -218,9 +222,9 @@ function operationalPriorityView(value: number | null) {
 
   if (score >= 80) {
     return {
-      label: "Prioridade alta",
-      helper: "Atender primeiro",
-      scoreText: `${score} pontos`,
+      label: "Atender primeiro",
+      helper: "Risco alto ou evidência forte. Priorize essa ocorrência.",
+      scoreText: `Urgência ${score}/100`,
       percent: score,
       tone: "border-red-300/25 bg-red-300/10 text-red-100",
       bar: "bg-red-300",
@@ -229,9 +233,9 @@ function operationalPriorityView(value: number | null) {
 
   if (score >= 55) {
     return {
-      label: "Prioridade média",
-      helper: "Acompanhar hoje",
-      scoreText: `${score} pontos`,
+      label: "Acompanhar hoje",
+      helper: "Existe sinal relevante. Valide no turno atual.",
+      scoreText: `Urgência ${score}/100`,
       percent: score,
       tone: "border-amber-300/25 bg-amber-300/10 text-amber-100",
       bar: "bg-amber-300",
@@ -239,9 +243,9 @@ function operationalPriorityView(value: number | null) {
   }
 
   return {
-    label: "Prioridade baixa",
-    helper: "Monitorar",
-    scoreText: `${score} pontos`,
+    label: "Monitorar",
+    helper: "Baixo risco no recorte atual. Mantenha em observação.",
+    scoreText: `Urgência ${score}/100`,
     percent: score,
     tone: "border-sky-300/20 bg-sky-300/10 text-sky-100",
     bar: "bg-sky-300",
@@ -723,24 +727,19 @@ function DashboardView({
                 const percent = item.count > 0 ? Math.max(6, (item.count / maxAlarmType) * 100) : 0;
 
                 return (
-                  <div key={item.priority}>
+                  <div key={item.action}>
                     <div className="mb-2 flex items-center justify-between gap-4 text-sm">
-                      <div className="flex min-w-0 items-start gap-3">
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/[0.06] text-base font-bold text-white">
-                          {item.priority}
-                        </span>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold text-white">Prioridade {item.priority}</span>
-                            <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-white/65">{item.label}</span>
-                          </div>
-                          <p className="mt-0.5 text-xs text-white/45">{item.helper}</p>
-                          <p className="mt-0.5 text-xs text-white/35">
-                            códigos: {item.sourceCodes.length ? item.sourceCodes.join(", ") : "-"}
-                          </p>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold text-white">{item.action}</span>
+                          <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-white/65">{item.label}</span>
                         </div>
+                        <p className="mt-0.5 text-xs text-white/50">{item.helper}</p>
+                        <p className="mt-0.5 text-xs text-white/35">
+                          Base técnica: classificação original {item.sourceCodes.length ? item.sourceCodes.join(", ") : "-"}
+                        </p>
                       </div>
-                      <span className="text-base font-semibold text-white">{item.count}</span>
+                      <span className="shrink-0 text-base font-semibold text-white">{item.count} alarmes</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-white/8">
                       <div
@@ -1168,7 +1167,7 @@ function InsightsView({ insights }: { insights: EletrofrioInsight[] }) {
             <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-xl border border-white/10 px-3 py-2 text-sm outline-none">
               <option value="priority">Prioridade</option>
               <option value="recent">Mais recentes</option>
-              <option value="score">Pontuação</option>
+              <option value="score">Maior urgência</option>
             </select>
           </label>
 
@@ -1216,7 +1215,7 @@ function InsightsView({ insights }: { insights: EletrofrioInsight[] }) {
                       <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs">
                         Confiança {analysis.confidence}
                       </span>
-                      <div className={`min-w-[190px] rounded-lg border px-3 py-2 ${priority.tone}`}>
+                      <div className={`min-w-[220px] rounded-lg border px-3 py-2 ${priority.tone}`}>
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-xs font-semibold">{priority.label}</span>
                           <span className="text-[11px] opacity-80">{priority.scoreText}</span>
@@ -2286,8 +2285,9 @@ function RulesView({ canManage }: { canManage: boolean }) {
                   <input value={selectedRule.scope_value || ""} onChange={(event) => updateSelectedRule({ scope_value: event.target.value || null })} placeholder="Ex.: frozen, compressor, 315" className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Prioridade</span>
+                  <span className="text-sm text-white/60">Ordem de atendimento</span>
                   <input type="number" value={selectedRule.priority} onChange={(event) => updateSelectedRule({ priority: Number(event.target.value) || 100 })} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                  <span className="text-xs text-white/40">Número menor entra antes na fila de avaliação. Ex.: 5 antes de 50.</span>
                 </label>
               </div>
               <div className="grid gap-3 md:grid-cols-4">
@@ -2338,7 +2338,7 @@ function RulesView({ canManage }: { canManage: boolean }) {
                 <p className="mt-1 text-white/60">{item.loja_nome || `Loja ${item.loja_id ?? "-"}`} - {item.tag || `Dispositivo ${item.dispositivo_id ?? "-"}`}</p>
               </div>
               <div className="text-white/65 md:text-right">
-                <p>{severityLabel(item.severity || "info")} | {item.score ?? "-"} / 100</p>
+                <p>{severityLabel(item.severity || "info")} - Urgência {item.score ?? "-"}/100</p>
                 <p>{formatDate(item.evaluated_at)}</p>
               </div>
             </div>
