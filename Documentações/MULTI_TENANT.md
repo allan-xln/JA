@@ -46,6 +46,10 @@ No Docker/VPS:
 docker compose exec api python -m api.scripts.seed_tenants
 ```
 
+O snapshot versionado dos clientes/tenants gerados fica em:
+
+- `Documentações/CLIENTES.md`
+
 O seed:
 
 - cria `admin / admin`;
