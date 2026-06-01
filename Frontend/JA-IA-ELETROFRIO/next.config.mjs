@@ -6,6 +6,7 @@ const serverApiUrl = (
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   async rewrites() {
     return [
       {
@@ -16,4 +17,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig
+export default nextConfig;
