@@ -2,12 +2,18 @@ type HeaderProps = {
   title?: string;
   subtitle?: string;
   connected?: boolean;
+  userLabel?: string;
+  userRole?: string;
+  onLogout?: () => void;
 };
 
 export function Header({
   title = "Eletrofrio",
   subtitle = "",
   connected,
+  userLabel,
+  userRole,
+  onLogout,
 }: HeaderProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0b1118]/95 px-3 py-3 text-slate-100 md:px-6">
@@ -19,7 +25,12 @@ export function Header({
           {subtitle ? <p className="mt-0.5 truncate text-xs text-slate-500">{subtitle}</p> : null}
         </div>
 
-        <div className="shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
+          {userLabel ? (
+            <div className="hidden rounded-md border border-white/10 bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-slate-200 sm:block">
+              {userRole === "admin" ? "Admin" : userLabel}
+            </div>
+          ) : null}
           <div
             className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
               connected
@@ -29,6 +40,15 @@ export function Header({
           >
             {connected ? "Canal online" : "Canal pendente"}
           </div>
+          {onLogout ? (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="rounded-md border border-white/10 bg-white/[0.055] px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:bg-white/[0.08]"
+            >
+              Sair
+            </button>
+          ) : null}
         </div>
       </div>
     </header>

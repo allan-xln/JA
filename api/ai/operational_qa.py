@@ -14,6 +14,7 @@ import requests
 from api.ai.knowledge_context import rules_for_terms
 from api.analysis.metrics import build_metrics
 from api.analysis.rules import classify_alarm_severity
+from api.auth import TenantScope
 from api.config import settings
 from api.logger import logger
 from api.repositories import (
@@ -232,6 +233,8 @@ def _source(source_type: str, row: dict[str, Any], label: str, relevance_reason:
         "type": source_type,
         "id": str(source_id),
         "label": label,
+        "loja_id": row.get("loja_id"),
+        "dispositivo_id": row.get("dispositivo_id") or row.get("equipment_id"),
         "loja_nome": row.get("loja_nome"),
         "tag": row.get("tag"),
         "timestamp": timestamp,
@@ -549,7 +552,7 @@ def _safe_fetch(label: str, fetcher: Any, default: list[dict[str, Any]] | None =
         return default or []
 
 
-def retrieve_operational_context(question: str, intent: str) -> dict[str, Any]:
+def retrieve_operational_context(question: str, intent: str, scope: TenantScope | None = None) -> dict[str, Any]:
     retrieval_warnings: list[str] = []
 
     def capture(label: str, fetcher: Any) -> list[dict[str, Any]]:
@@ -560,12 +563,12 @@ def retrieve_operational_context(question: str, intent: str) -> dict[str, Any]:
             retrieval_warnings.append(f"Não foi possível carregar {label}; resposta baseada nas demais fontes disponíveis.")
             return []
 
-    units = capture("lojas", list_units)
-    devices = capture("dispositivos", list_devices)
-    alarms = capture("alarmes", lambda: list_alarms(300))
-    telemetry = capture("telemetria", lambda: list_telemetry(800))
-    insights = capture("insights", lambda: list_insights(150))
-    anomalies = capture("anomalias", lambda: list_anomalies(100))
+    units = capture("lojas", lambda: list_units(scope))
+    devices = capture("dispositivos", lambda: list_devices(scope))
+    alarms = capture("alarmes", lambda: list_alarms(300, scope))
+    telemetry = capture("telemetria", lambda: list_telemetry(800, scope))
+    insights = capture("insights", lambda: list_insights(150, scope))
+    anomalies = capture("anomalias", lambda: list_anomalies(100, scope=scope))
     runs = capture("histórico de coletas", lambda: list_collector_runs(8))
     metrics = build_metrics(units, devices, alarms, telemetry)
     store, store_alternatives = _find_store(question, units)
@@ -607,6 +610,14 @@ def retrieve_operational_context(question: str, intent: str) -> dict[str, Any]:
         "knowledge_rules": rules_for_terms(question),
         "operational_rules": operational_rules,
         "retrieval_warnings": retrieval_warnings,
+        "scope": {
+            "label": scope.label if scope else "Visão administrativa",
+            "role": scope.role if scope else "admin",
+            "customer_id": scope.customer_id if scope and not scope.is_admin else None,
+            "customer_name": scope.customer_name if scope and not scope.is_admin else None,
+            "allowed_loja_ids": sorted(scope.allowed_loja_ids) if scope and not scope.is_admin else [],
+            "allowed_dispositivo_ids": sorted(scope.allowed_dispositivo_ids) if scope and not scope.is_admin else [],
+        },
     }
 
 
@@ -713,7 +724,10 @@ def _status_store(context: dict[str, Any]) -> dict[str, Any]:
     store = context["matched_store"]
     if not store:
         alternatives = ", ".join(_format_store(item) for item in context["store_alternatives"][:3])
-        warning = "Loja nao identificada com seguranca."
+        if context.get("scope", {}).get("role") == "client":
+            warning = "Não encontrei essa loja no seu ambiente."
+        else:
+            warning = "Loja nao identificada com seguranca."
         if alternatives:
             warning += f" Possiveis correspondencias: {alternatives}."
         return {"answer": warning, "sources": [], "warnings": [warning], "matched": False}
@@ -1082,6 +1096,7 @@ def _context_for_ai(context: dict[str, Any], local: dict[str, Any]) -> dict[str,
         "relevant_insights": context["ranked_insights"][:8],
         "knowledge_rules": context["knowledge_rules"],
         "operational_rules": context["operational_rules"][:8],
+        "scope": context.get("scope"),
     }
 
 
@@ -1137,7 +1152,7 @@ def _synthesize_with_openai(context: dict[str, Any], local: dict[str, Any]) -> t
         )
 
 
-def answer_operational_question(question: str, origin: str = "panel") -> dict[str, Any]:
+def answer_operational_question(question: str, origin: str = "panel", scope: TenantScope | None = None) -> dict[str, Any]:
     started = time.perf_counter()
     intent = detect_intent(question)
     error: str | None = None
@@ -1145,7 +1160,7 @@ def answer_operational_question(question: str, origin: str = "panel") -> dict[st
     confidence = 0.0
     source_count = 0
     try:
-        context = retrieve_operational_context(question, intent)
+        context = retrieve_operational_context(question, intent, scope)
         local = _build_local_response(context)
         if context.get("retrieval_warnings"):
             local["warnings"] = list(dict.fromkeys([*local.get("warnings", []), *context["retrieval_warnings"]]))
@@ -1172,6 +1187,7 @@ def answer_operational_question(question: str, origin: str = "panel") -> dict[st
             "model": model,
             "question": question,
             "bullet_points": bullet_points,
+            "scope": context.get("scope"),
         }
         return response
     except Exception as exc:

@@ -72,6 +72,14 @@ Tabelas de automação, quando aplicadas:
 - `eletrofrio_collector_settings`
 - `eletrofrio_anomalies`
 
+Tabelas multi-cliente, quando aplicada a migration `sql/005_multi_tenant_auth.sql`:
+
+- `eletrofrio_customers`
+- `eletrofrio_users`
+- `eletrofrio_customer_units`
+- `eletrofrio_customer_devices`
+- `eletrofrio_sessions`
+
 ### Endpoints Oficiais Da Eletrofrio
 
 O sistema usa somente os endpoints oficiais:
@@ -127,6 +135,20 @@ Exemplos:
 - "Qual sensor deu problema?"
 
 O sistema não inventa valores. Se não houver evidência suficiente, ele informa isso claramente.
+
+Com login de cliente, o RAG recebe apenas lojas, dispositivos, alarmes, telemetria, insights e anomalias do tenant autenticado. Perguntas sobre loja fora do ambiente do cliente não retornam dados de terceiros.
+
+### Login E Multi-cliente
+
+O sistema possui autenticação em `/api/auth/login`, sessão por bearer token e dois perfis:
+
+- admin: visão completa da operação;
+- cliente: visão filtrada por lojas e dispositivos vinculados.
+
+O seed `python -m api.scripts.seed_tenants` cria o usuário admin e usuários de demonstração por cliente/loja detectada. A documentação detalhada está em:
+
+- `Documentações/MULTI_TENANT.md`
+- `Documentações/USUARIOS_DEMO.md`
 
 ### Motor De Regras Operacionais
 

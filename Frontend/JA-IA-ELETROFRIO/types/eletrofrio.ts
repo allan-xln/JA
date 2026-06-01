@@ -4,6 +4,21 @@ export type ApiListResponse<T> = {
   items: T[];
 };
 
+export type AuthUser = {
+  username: string;
+  role: "admin" | "client" | string;
+  customer_id: string | null;
+  customer_name: string | null;
+  scope_label?: string;
+  allowed_loja_ids?: number[];
+  allowed_dispositivo_ids?: number[];
+};
+
+export type AuthLoginResponse = {
+  token: string;
+  user: AuthUser;
+};
+
 export type EletrofrioHealth = {
   status: string;
   supabase_configured: boolean;
@@ -168,6 +183,7 @@ export type EletrofrioOverview = {
   top_critical_devices: DeviceMetric[];
   top_critical_stores: StoreMetric[];
   latest_insights?: EletrofrioInsight[];
+  scope?: AuthUser;
 };
 
 export type WhatsappStatus = {
@@ -233,6 +249,8 @@ export type CommunicationLog = {
   loja_nome: string | null;
   dispositivo_id: number | null;
   tag: string | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
   message_preview: string | null;
   payload_json: Record<string, unknown>;
   status: string;
@@ -251,6 +269,8 @@ export type RagQueryLog = {
   used_ai: boolean;
   sources_json: Array<Record<string, unknown>>;
   warnings_json: string[];
+  customer_id?: string | null;
+  customer_name?: string | null;
   response_time_ms: number | null;
   created_at: string;
 };
@@ -264,6 +284,8 @@ export type WhatsappMessageLog = {
   message_full: string | null;
   dry_run: boolean;
   delivery_status: string;
+  customer_id?: string | null;
+  customer_name?: string | null;
   created_at: string;
 };
 
@@ -354,4 +376,5 @@ export type AssistantAnswer = {
   used_ai: boolean;
   used_openai: boolean;
   question: string;
+  scope?: AuthUser;
 };

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import time
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import requests
 
 from api.ai.operational_qa import ASSISTANT_SUGGESTIONS, answer_operational_question
 from api.analysis.metrics import build_metrics
+from api.auth import AuthUser, current_user, require_admin
 from api.communications import (
     communication_timeline,
     list_communications,
@@ -68,7 +69,7 @@ class OperationalRulePayload(BaseModel):
     recommended_action_template: str | None = None
 
 
-def handle_assistant_question(payload: AssistantQueryPayload):
+def handle_assistant_question(payload: AssistantQueryPayload, user: AuthUser):
     require_supabase()
     question = payload.question.strip()
     if len(question) < 4:
@@ -76,7 +77,7 @@ def handle_assistant_question(payload: AssistantQueryPayload):
     if len(question) > 1000:
         raise HTTPException(status_code=400, detail="Pergunta muito longa.")
     started = time.perf_counter()
-    answer = answer_operational_question(question, origin=payload.origin)
+    answer = answer_operational_question(question, origin=payload.origin, scope=user.scope)
     response_time_ms = int((time.perf_counter() - started) * 1000)
     log_communication(
         {
@@ -84,11 +85,13 @@ def handle_assistant_question(payload: AssistantQueryPayload):
             "direction": "incoming",
             "message_preview": question,
             "payload_json": {"origin": payload.origin},
+            "customer_id": user.scope.customer_id if not user.scope.is_admin else None,
+            "customer_name": user.scope.customer_name if not user.scope.is_admin else None,
             "status": "received",
             "source": "WhatsApp" if payload.origin == "whatsapp" else "usuário",
         }
     )
-    log_rag_query(question=question, answer=answer, response_time_ms=response_time_ms)
+    log_rag_query(question=question, answer=answer, response_time_ms=response_time_ms, scope=user.scope)
     return answer
 
 
@@ -114,47 +117,48 @@ def eletrofrio_health():
 
 
 @router.get("/overview")
-def eletrofrio_overview():
+def eletrofrio_overview(user: AuthUser = Depends(current_user)):
     require_supabase()
-    units = list_units()
-    devices = list_devices()
-    alarms = list_alarms(300)
-    telemetry = list_telemetry(800)
-    insights = list_insights(50)
+    units = list_units(user.scope)
+    devices = list_devices(user.scope)
+    alarms = list_alarms(300, user.scope)
+    telemetry = list_telemetry(800, user.scope)
+    insights = list_insights(50, user.scope)
     metrics = build_metrics(units, devices, alarms, telemetry)
     metrics["totals"]["insights"] = len(insights)
     metrics["latest_insights"] = insights[:10]
+    metrics["scope"] = user.public_dict()
     return metrics
 
 
 @router.get("/units")
-def eletrofrio_units():
+def eletrofrio_units(user: AuthUser = Depends(current_user)):
     require_supabase()
-    return {"items": list_units()}
+    return {"items": list_units(user.scope)}
 
 
 @router.get("/devices")
-def eletrofrio_devices():
+def eletrofrio_devices(user: AuthUser = Depends(current_user)):
     require_supabase()
-    return {"items": list_devices()}
+    return {"items": list_devices(user.scope)}
 
 
 @router.get("/alarms")
-def eletrofrio_alarms(limit: int = 200):
+def eletrofrio_alarms(limit: int = 200, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return {"items": list_alarms(limit)}
+    return {"items": list_alarms(limit, user.scope)}
 
 
 @router.get("/telemetry")
-def eletrofrio_telemetry(limit: int = 500):
+def eletrofrio_telemetry(limit: int = 500, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return {"items": list_telemetry(limit)}
+    return {"items": list_telemetry(limit, user.scope)}
 
 
 @router.get("/insights")
-def eletrofrio_insights(limit: int = 100):
+def eletrofrio_insights(limit: int = 100, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return {"items": list_insights(limit)}
+    return {"items": list_insights(limit, user.scope)}
 
 
 @router.get("/rules/defaults/preview")
@@ -163,19 +167,34 @@ def eletrofrio_rules_defaults_preview():
 
 
 @router.post("/rules/defaults/apply")
-def eletrofrio_rules_defaults_apply():
+def eletrofrio_rules_defaults_apply(user: AuthUser = Depends(require_admin)):
     require_supabase()
     return apply_default_rules()
 
 
 @router.get("/rules")
-def eletrofrio_rules():
+def eletrofrio_rules(user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_rules()
+    result = list_rules()
+    if user.scope.is_admin:
+        return result
+    items = [
+        rule for rule in result.get("items", [])
+        if rule.get("scope_type") == "global"
+        or (
+            rule.get("scope_type") in {"loja", "store", "unit"}
+            and str(rule.get("scope_value")) in {str(item) for item in user.scope.allowed_loja_ids}
+        )
+        or (
+            rule.get("scope_type") in {"device", "dispositivo"}
+            and str(rule.get("scope_value")) in {str(item) for item in user.scope.allowed_dispositivo_ids}
+        )
+    ]
+    return {**result, "items": items}
 
 
 @router.post("/rules")
-def eletrofrio_rules_create(payload: OperationalRulePayload):
+def eletrofrio_rules_create(payload: OperationalRulePayload, user: AuthUser = Depends(require_admin)):
     require_supabase()
     try:
         return create_rule(payload.dict())
@@ -184,7 +203,7 @@ def eletrofrio_rules_create(payload: OperationalRulePayload):
 
 
 @router.post("/rules/evaluate")
-def eletrofrio_rules_evaluate():
+def eletrofrio_rules_evaluate(user: AuthUser = Depends(require_admin)):
     require_supabase()
     units = list_units()
     devices = list_devices()
@@ -194,13 +213,17 @@ def eletrofrio_rules_evaluate():
 
 
 @router.get("/rule-evaluations")
-def eletrofrio_rule_evaluations(limit: int = 100):
+def eletrofrio_rule_evaluations(limit: int = 100, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_rule_evaluations(limit)
+    result = list_rule_evaluations(limit)
+    if user.scope.is_admin:
+        return result
+    from api.repositories import filter_rows_by_scope
+    return {**result, "items": filter_rows_by_scope(result.get("items", []), user.scope)}
 
 
 @router.get("/rules/{rule_id}")
-def eletrofrio_rules_get(rule_id: str):
+def eletrofrio_rules_get(rule_id: str, user: AuthUser = Depends(current_user)):
     require_supabase()
     try:
         rule = get_rule(rule_id)
@@ -212,7 +235,7 @@ def eletrofrio_rules_get(rule_id: str):
 
 
 @router.put("/rules/{rule_id}")
-def eletrofrio_rules_update(rule_id: str, payload: OperationalRulePayload):
+def eletrofrio_rules_update(rule_id: str, payload: OperationalRulePayload, user: AuthUser = Depends(require_admin)):
     require_supabase()
     try:
         return update_rule(rule_id, payload.dict())
@@ -223,7 +246,7 @@ def eletrofrio_rules_update(rule_id: str, payload: OperationalRulePayload):
 
 
 @router.patch("/rules/{rule_id}/toggle")
-def eletrofrio_rules_toggle(rule_id: str):
+def eletrofrio_rules_toggle(rule_id: str, user: AuthUser = Depends(require_admin)):
     require_supabase()
     try:
         return toggle_rule(rule_id)
@@ -234,7 +257,7 @@ def eletrofrio_rules_toggle(rule_id: str):
 
 
 @router.delete("/rules/{rule_id}")
-def eletrofrio_rules_delete(rule_id: str):
+def eletrofrio_rules_delete(rule_id: str, user: AuthUser = Depends(require_admin)):
     require_supabase()
     try:
         return delete_rule(rule_id)
@@ -250,41 +273,41 @@ def eletrofrio_assistant_suggestions():
 
 
 @router.get("/communications")
-def eletrofrio_communications(limit: int = 80, type: str | None = None, status: str | None = None, search: str | None = None):
+def eletrofrio_communications(limit: int = 80, type: str | None = None, status: str | None = None, search: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_communications(limit=limit, type_=type, status=status, search=search)
+    return list_communications(limit=limit, type_=type, status=status, search=search, scope=user.scope)
 
 
 @router.get("/communications/timeline")
-def eletrofrio_communications_timeline(limit: int = 80):
+def eletrofrio_communications_timeline(limit: int = 80, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return communication_timeline(limit)
+    return communication_timeline(limit, user.scope)
 
 
 @router.get("/rag/history")
-def eletrofrio_rag_history(limit: int = 50, search: str | None = None):
+def eletrofrio_rag_history(limit: int = 50, search: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_rag_queries(limit=limit, search=search)
+    return list_rag_queries(limit=limit, search=search, scope=user.scope)
 
 
 @router.get("/whatsapp/messages")
-def eletrofrio_whatsapp_messages(limit: int = 80, status: str | None = None, type: str | None = None):
+def eletrofrio_whatsapp_messages(limit: int = 80, status: str | None = None, type: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_whatsapp_messages(limit=limit, status=status, type_=type)
+    return list_whatsapp_messages(limit=limit, status=status, type_=type, scope=user.scope)
 
 
 @router.post("/assistant/ask")
-def eletrofrio_assistant_ask(payload: AssistantQueryPayload):
-    return handle_assistant_question(payload)
+def eletrofrio_assistant_ask(payload: AssistantQueryPayload, user: AuthUser = Depends(current_user)):
+    return handle_assistant_question(payload, user)
 
 
 @router.post("/assistant/query")
-def eletrofrio_assistant_query(payload: AssistantQueryPayload):
-    return handle_assistant_question(payload)
+def eletrofrio_assistant_query(payload: AssistantQueryPayload, user: AuthUser = Depends(current_user)):
+    return handle_assistant_question(payload, user)
 
 
 @router.post("/run-collector")
-def eletrofrio_run_collector():
+def eletrofrio_run_collector(user: AuthUser = Depends(require_admin)):
     require_supabase()
     try:
         return run_collector_managed("manual")
@@ -318,35 +341,35 @@ def whatsapp_request(method: str, path: str, payload: dict | None = None):
 
 
 @router.post("/whatsapp/start")
-def eletrofrio_whatsapp_start():
+def eletrofrio_whatsapp_start(user: AuthUser = Depends(require_admin)):
     return whatsapp_request("POST", "/start")
 
 
 @router.get("/whatsapp/status")
-def eletrofrio_whatsapp_status():
+def eletrofrio_whatsapp_status(user: AuthUser = Depends(current_user)):
     return whatsapp_request("GET", "/status")
 
 
 @router.get("/whatsapp/qr")
-def eletrofrio_whatsapp_qr():
+def eletrofrio_whatsapp_qr(user: AuthUser = Depends(require_admin)):
     return whatsapp_request("GET", "/qr")
 
 
 @router.post("/whatsapp/logout")
-def eletrofrio_whatsapp_logout():
+def eletrofrio_whatsapp_logout(user: AuthUser = Depends(require_admin)):
     return whatsapp_request("POST", "/logout")
 
 
 @router.post("/whatsapp/send-test")
-def eletrofrio_whatsapp_send_test(payload: WhatsAppTestPayload):
+def eletrofrio_whatsapp_send_test(payload: WhatsAppTestPayload, user: AuthUser = Depends(require_admin)):
     return whatsapp_request("POST", "/send-test", payload.dict())
 
 
 @router.post("/whatsapp/process-insights")
-def eletrofrio_whatsapp_process_insights():
+def eletrofrio_whatsapp_process_insights(user: AuthUser = Depends(require_admin)):
     return whatsapp_request("POST", "/process-insights")
 
 
 @router.post("/whatsapp/send-operational-summary")
-def eletrofrio_whatsapp_send_operational_summary():
+def eletrofrio_whatsapp_send_operational_summary(user: AuthUser = Depends(require_admin)):
     return whatsapp_request("POST", "/send-operational-summary")

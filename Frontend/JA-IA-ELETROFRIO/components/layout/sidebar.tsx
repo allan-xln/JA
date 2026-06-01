@@ -21,6 +21,7 @@ export type ViewId = (typeof items)[number]["id"];
 type SidebarProps = {
   activeView: ViewId;
   onViewChange: (view: ViewId) => void;
+  role?: string;
   totals?: {
     units?: number;
     devices?: number;
@@ -28,8 +29,9 @@ type SidebarProps = {
   };
 };
 
-export function Sidebar({ activeView, onViewChange, totals }: SidebarProps) {
+export function Sidebar({ activeView, onViewChange, role = "admin", totals }: SidebarProps) {
   void totals;
+  const visibleItems = role === "admin" ? items : items.filter((item) => item.id !== "operacao");
 
   return (
     <aside className="fixed inset-x-0 bottom-0 z-40 flex border-t border-white/10 bg-[#0b1118]/95 text-slate-200 lg:static lg:inset-auto lg:z-auto lg:flex-col lg:border-r lg:border-t-0 lg:bg-[#0b1118]">
@@ -40,7 +42,7 @@ export function Sidebar({ activeView, onViewChange, totals }: SidebarProps) {
       </div>
 
       <nav className="grid w-full grid-cols-6 gap-1 p-2 lg:flex lg:w-auto lg:flex-col lg:items-center lg:gap-2 lg:overflow-visible">
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const Icon = item.icon;
 
           return (

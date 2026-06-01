@@ -1,5 +1,7 @@
 import type {
   ApiListResponse,
+  AuthLoginResponse,
+  AuthUser,
   AssistantAnswer,
   CommunicationLog,
   CommunicationResponse,
@@ -23,6 +25,8 @@ import type {
   WhatsappQr,
   WhatsappStatus,
 } from "@/types/eletrofrio";
+
+const AUTH_TOKEN_KEY = "eletrofrio.authToken";
 
 const PUBLIC_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
@@ -53,12 +57,27 @@ type RequestOptions = RequestInit & {
   };
 };
 
+export function getAuthToken() {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+export function setAuthToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (token) {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+  } else {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+  }
+}
+
 async function apiFetch<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
   const apiBaseUrl = getApiBaseUrl();
   const url = `${apiBaseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+  const token = getAuthToken();
 
   let response: Response;
   try {
@@ -66,6 +85,7 @@ async function apiFetch<T>(
       ...options,
       headers: {
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers || {}),
       },
       cache: options.cache ?? "no-store",
@@ -76,6 +96,12 @@ async function apiFetch<T>(
 
   if (!response.ok) {
     let message = `Erro ${response.status} ao acessar ${endpoint}`;
+    if (response.status === 401) {
+      setAuthToken(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("eletrofrio-auth-expired"));
+      }
+    }
 
     try {
       const body = await response.json();
@@ -97,6 +123,16 @@ async function apiFetch<T>(
 }
 
 export const eletrofrioApi = {
+  login: (username: string, password: string) =>
+    apiFetch<AuthLoginResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+  me: () => apiFetch<{ user: AuthUser }>("/api/auth/me"),
+  logout: () =>
+    apiFetch<{ ok: boolean }>("/api/auth/logout", {
+      method: "POST",
+    }),
   health: () => apiFetch<EletrofrioHealth>("/api/eletrofrio/health"),
   overview: () => apiFetch<EletrofrioOverview>("/api/eletrofrio/overview"),
   units: () => apiFetch<ApiListResponse<EletrofrioUnit>>("/api/eletrofrio/units"),

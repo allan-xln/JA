@@ -6,6 +6,7 @@ from typing import Any
 from api.database import SupabaseError, supabase
 from api.config import settings
 from api.logger import logger
+from api.auth import TenantScope
 
 
 _schema_warning_keys: set[str] = set()
@@ -97,6 +98,39 @@ def utc_now_iso() -> str:
 def parse_utc_datetime(value: Any) -> datetime | None:
     if not value:
         return None
+
+
+def _to_int(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def row_in_scope(row: dict[str, Any], scope: TenantScope | None) -> bool:
+    if scope is None or scope.is_admin:
+        return True
+    loja_id = _to_int(row.get("loja_id"))
+    dispositivo_id = _to_int(row.get("dispositivo_id") or row.get("equipment_id"))
+    if loja_id is not None and loja_id in scope.allowed_loja_ids:
+        return True
+    if dispositivo_id is not None and dispositivo_id in scope.allowed_dispositivo_ids:
+        return True
+    return False
+
+
+def filter_rows_by_scope(rows: list[dict[str, Any]], scope: TenantScope | None) -> list[dict[str, Any]]:
+    if scope is None or scope.is_admin:
+        return rows
+    return [row for row in rows if row_in_scope(row, scope)]
+
+
+def scoped_fetch_limit(limit: int, scope: TenantScope | None, multiplier: int = 6) -> int:
+    if scope is None or scope.is_admin:
+        return limit
+    return min(max(limit * multiplier, limit, 500), 5000)
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
         if parsed.tzinfo is None:
@@ -164,24 +198,38 @@ def insert_insights(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return supabase.upsert("eletrofrio_ai_insights", clean, "insight_hash")
 
 
-def list_units() -> list[dict[str, Any]]:
-    return supabase.select("eletrofrio_units", {"select": "*", "order": "loja_nome.asc"})
+def list_units(scope: TenantScope | None = None) -> list[dict[str, Any]]:
+    rows = supabase.select("eletrofrio_units", {"select": "*", "order": "loja_nome.asc", "limit": 5000})
+    return filter_rows_by_scope(rows, scope)
 
 
-def list_devices() -> list[dict[str, Any]]:
-    return supabase.select("eletrofrio_devices", {"select": "*", "order": "tag.asc"})
+def list_devices(scope: TenantScope | None = None) -> list[dict[str, Any]]:
+    rows = supabase.select("eletrofrio_devices", {"select": "*", "order": "tag.asc", "limit": 5000})
+    return filter_rows_by_scope(rows, scope)
 
 
-def list_alarms(limit: int = 200) -> list[dict[str, Any]]:
-    return supabase.select("eletrofrio_alarms", {"select": "*", "order": "created_at.desc", "limit": limit})
+def list_alarms(limit: int = 200, scope: TenantScope | None = None) -> list[dict[str, Any]]:
+    rows = supabase.select(
+        "eletrofrio_alarms",
+        {"select": "*", "order": "created_at.desc", "limit": scoped_fetch_limit(limit, scope)},
+    )
+    return filter_rows_by_scope(rows, scope)[:limit]
 
 
-def list_telemetry(limit: int = 500) -> list[dict[str, Any]]:
-    return supabase.select("eletrofrio_telemetry", {"select": "*", "order": "measured_at.desc", "limit": limit})
+def list_telemetry(limit: int = 500, scope: TenantScope | None = None) -> list[dict[str, Any]]:
+    rows = supabase.select(
+        "eletrofrio_telemetry",
+        {"select": "*", "order": "measured_at.desc", "limit": scoped_fetch_limit(limit, scope)},
+    )
+    return filter_rows_by_scope(rows, scope)[:limit]
 
 
-def list_insights(limit: int = 100) -> list[dict[str, Any]]:
-    return supabase.select("eletrofrio_ai_insights", {"select": "*", "order": "created_at.desc", "limit": limit})
+def list_insights(limit: int = 100, scope: TenantScope | None = None) -> list[dict[str, Any]]:
+    rows = supabase.select(
+        "eletrofrio_ai_insights",
+        {"select": "*", "order": "created_at.desc", "limit": scoped_fetch_limit(limit, scope)},
+    )
+    return filter_rows_by_scope(rows, scope)[:limit]
 
 
 def get_collector_settings() -> dict[str, Any] | None:
@@ -334,12 +382,12 @@ def patch_anomaly(anomaly_id: str, data: dict[str, Any]) -> dict[str, Any] | Non
     return rows[0] if rows else None
 
 
-def list_anomalies(limit: int = 100, status: str | None = None) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"select": "*", "order": "detected_at.desc", "limit": limit}
+def list_anomalies(limit: int = 100, status: str | None = None, scope: TenantScope | None = None) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {"select": "*", "order": "detected_at.desc", "limit": scoped_fetch_limit(limit, scope)}
     if status:
         params["status"] = f"eq.{status}"
     try:
-        return supabase.select("eletrofrio_anomalies", params)
+        return filter_rows_by_scope(supabase.select("eletrofrio_anomalies", params), scope)[:limit]
     except SupabaseError as exc:
         _warn_schema_once(
             "anomalies_unavailable",

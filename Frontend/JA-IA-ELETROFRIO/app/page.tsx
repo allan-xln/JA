@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Loader2,
   MessageCircle,
@@ -20,8 +20,9 @@ import { Sidebar, type ViewId } from "@/components/layout/sidebar";
 import { useEletrofrioInsights } from "@/hooks/useEletrofrioInsights";
 import { useEletrofrioOverview } from "@/hooks/useEletrofrioOverview";
 import { useWhatsappStatus } from "@/hooks/useWhatsappStatus";
-import { eletrofrioApi } from "@/services/eletrofrioApi";
+import { eletrofrioApi, getAuthToken, setAuthToken } from "@/services/eletrofrioApi";
 import type {
+  AuthUser,
   AssistantAnswer,
   CommunicationLog,
   CollectorRun,
@@ -519,6 +520,52 @@ function ErrorBanner({ message }: { message: string }) {
   );
 }
 
+function LoginView({ onLogin }: { onLogin: (user: AuthUser) => void }) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    try {
+      setBusy(true);
+      setError(null);
+      const result = await eletrofrioApi.login(username, password);
+      setAuthToken(result.token);
+      onLogin(result.user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível entrar.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="industrial-ui grid min-h-screen place-items-center px-4 text-slate-100">
+      <form onSubmit={submit} className="grid w-full max-w-sm gap-4 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
+        <div>
+          <h1 className="text-2xl font-semibold">Eletrofrio</h1>
+          <p className="mt-1 text-sm text-white/55">Acesse seu ambiente operacional.</p>
+        </div>
+        {error ? <ErrorBanner message={error} /> : null}
+        <label className="grid gap-2">
+          <span className="text-sm text-white/60">Usuário</span>
+          <input value={username} onChange={(event) => setUsername(event.target.value)} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm outline-none" autoComplete="username" />
+        </label>
+        <label className="grid gap-2">
+          <span className="text-sm text-white/60">Senha</span>
+          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm outline-none" autoComplete="current-password" />
+        </label>
+        <button type="submit" disabled={busy} className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/15 disabled:opacity-60">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          Entrar
+        </button>
+      </form>
+    </main>
+  );
+}
+
 function operationalErrorLabel(value?: string | null) {
   if (!value) return "";
   const text = value.toLowerCase();
@@ -594,6 +641,7 @@ function DashboardView({
   collectorBusy,
   collectorMessage,
   whatsappConnected,
+  canRunCollector,
 }: {
   overview: ReturnType<typeof useEletrofrioOverview>["overview"];
   loading: boolean;
@@ -602,6 +650,7 @@ function DashboardView({
   collectorBusy: boolean;
   collectorMessage: string | null;
   whatsappConnected: boolean;
+  canRunCollector: boolean;
 }) {
   const totals = overview?.totals;
   const alarmsByType = overview?.alarms_by_type || {};
@@ -626,15 +675,17 @@ function DashboardView({
             <RefreshCw className="h-4 w-4" />
             Atualizar
           </button>
-          <button
-            type="button"
-            onClick={() => void onRunCollector()}
-            disabled={collectorBusy}
-            className="inline-flex items-center gap-2 rounded-xl border border-sky-400/20 bg-white/[0.055] px-4 py-3 text-sm font-semibold text-sky-100 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {collectorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            Sincronizar agora
-          </button>
+          {canRunCollector ? (
+            <button
+              type="button"
+              onClick={() => void onRunCollector()}
+              disabled={collectorBusy}
+              className="inline-flex items-center gap-2 rounded-xl border border-sky-400/20 bg-white/[0.055] px-4 py-3 text-sm font-semibold text-sky-100 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {collectorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              Sincronizar agora
+            </button>
+          ) : null}
         </div>
       </Panel>
 
@@ -1917,7 +1968,7 @@ function ruleSearchText(rule: OperationalRule) {
   ].join(" ").toLowerCase();
 }
 
-function RulesView() {
+function RulesView({ canManage }: { canManage: boolean }) {
   const [rules, setRules] = useState<OperationalRule[]>([]);
   const [evaluations, setEvaluations] = useState<RuleEvaluation[]>([]);
   const [selectedRule, setSelectedRule] = useState<OperationalRule | null>(null);
@@ -1971,12 +2022,14 @@ function RulesView() {
   };
 
   const startNewRule = () => {
+    if (!canManage) return;
     setMessage(null);
     setError(null);
     setSelectedRule(newRuleDraft());
   };
 
   const applyDefaults = async () => {
+    if (!canManage) return;
     try {
       setBusy(true);
       setError(null);
@@ -1992,6 +2045,7 @@ function RulesView() {
   };
 
   const evaluateRules = async () => {
+    if (!canManage) return;
     try {
       setBusy(true);
       setError(null);
@@ -2007,6 +2061,7 @@ function RulesView() {
   };
 
   const toggleRule = async (rule: OperationalRule) => {
+    if (!canManage) return;
     if (isDraftRule(rule)) {
       setSelectedRule({ ...rule, enabled: !rule.enabled });
       return;
@@ -2026,6 +2081,7 @@ function RulesView() {
   };
 
   const saveSelectedRule = async () => {
+    if (!canManage) return;
     if (!selectedRule) return;
     if (!selectedRule.name.trim()) {
       setError("Informe um nome para a regra.");
@@ -2055,6 +2111,7 @@ function RulesView() {
   };
 
   const deleteSelectedRule = async () => {
+    if (!canManage) return;
     if (!selectedRule) return;
     if (draftMode) {
       setSelectedRule(rules[0] || null);
@@ -2112,20 +2169,22 @@ function RulesView() {
                 className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none"
               />
             </div>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <button disabled={busy} onClick={startNewRule} className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-3 py-3 text-sm font-semibold text-white/80 disabled:opacity-60">
-                <Plus className="h-4 w-4" />
-                Nova
-              </button>
-              <button disabled={busy} onClick={() => void applyDefaults()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-3 py-3 text-sm font-semibold text-sky-100 disabled:opacity-60">
-                <ShieldCheck className="h-4 w-4" />
-                Sugeridas
-              </button>
-              <button disabled={busy} onClick={() => void evaluateRules()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-3 text-sm font-semibold text-emerald-100 disabled:opacity-60">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Reavaliar
-              </button>
-            </div>
+            {canManage ? (
+              <div className="grid gap-2 sm:grid-cols-3">
+                <button disabled={busy} onClick={startNewRule} className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-3 py-3 text-sm font-semibold text-white/80 disabled:opacity-60">
+                  <Plus className="h-4 w-4" />
+                  Nova
+                </button>
+                <button disabled={busy} onClick={() => void applyDefaults()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-3 py-3 text-sm font-semibold text-sky-100 disabled:opacity-60">
+                  <ShieldCheck className="h-4 w-4" />
+                  Sugeridas
+                </button>
+                <button disabled={busy} onClick={() => void evaluateRules()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-3 text-sm font-semibold text-emerald-100 disabled:opacity-60">
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Reavaliar
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-5 grid max-h-[620px] gap-2 overflow-auto pr-1">
@@ -2167,7 +2226,7 @@ function RulesView() {
                   <p className="text-xs uppercase tracking-[0.18em] text-white/45">{draftMode ? "Nova regra" : "Editar regra"}</p>
                   <h3 className="mt-2 text-xl font-semibold">{selectedRule.name || "Regra operacional"}</h3>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                {canManage ? <div className="flex flex-wrap gap-2">
                   <button disabled={busy} onClick={() => void toggleRule(selectedRule)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold disabled:opacity-60 ${selectedRule.enabled ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/[0.055] text-white/70"}`}>
                     <Power className="h-4 w-4" />
                     {selectedRule.enabled ? "Ativa" : "Inativa"}
@@ -2180,7 +2239,7 @@ function RulesView() {
                     <Trash2 className="h-4 w-4" />
                     Excluir
                   </button>
-                </div>
+                </div> : null}
               </div>
               <label className="grid gap-2">
                 <span className="text-sm text-white/60">Nome</span>
@@ -2672,20 +2731,52 @@ function OperationView() {
 
 export default function HomePage() {
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const overviewState = useEletrofrioOverview();
   const insightsState = useEletrofrioInsights();
   const whatsapp = useWhatsappStatus(30000);
   const [collectorBusy, setCollectorBusy] = useState(false);
   const [collectorMessage, setCollectorMessage] = useState<string | null>(null);
+  const isAdmin = authUser?.role === "admin";
 
   useEffect(() => {
+    const restoreSession = async () => {
+      const token = getAuthToken();
+      if (!token) {
+        setAuthChecked(true);
+        return;
+      }
+      try {
+        const result = await eletrofrioApi.me();
+        setAuthUser(result.user);
+      } catch {
+        setAuthToken(null);
+        setAuthUser(null);
+      } finally {
+        setAuthChecked(true);
+      }
+    };
+    void restoreSession();
+
+    const expireSession = () => {
+      setAuthToken(null);
+      setAuthUser(null);
+    };
+    window.addEventListener("eletrofrio-auth-expired", expireSession);
+    return () => window.removeEventListener("eletrofrio-auth-expired", expireSession);
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) return;
     const syncViewFromRoute = () => {
       const nextView = viewFromBrowser();
-      setActiveView(nextView);
-      window.localStorage.setItem(VIEW_STORAGE_KEY, nextView);
+      const allowedView = authUser.role === "admin" || nextView !== "operacao" ? nextView : "dashboard";
+      setActiveView(allowedView);
+      window.localStorage.setItem(VIEW_STORAGE_KEY, allowedView);
 
       if (!window.location.hash) {
-        window.history.replaceState(null, "", viewHash(nextView));
+        window.history.replaceState(null, "", viewHash(allowedView));
       }
     };
 
@@ -2697,15 +2788,32 @@ export default function HomePage() {
       window.removeEventListener("hashchange", syncViewFromRoute);
       window.removeEventListener("popstate", syncViewFromRoute);
     };
-  }, []);
+  }, [authUser]);
 
   const changeView = (view: ViewId) => {
-    setActiveView(view);
-    window.localStorage.setItem(VIEW_STORAGE_KEY, view);
-    window.history.pushState(null, "", viewHash(view));
+    const allowedView = isAdmin || view !== "operacao" ? view : "dashboard";
+    setActiveView(allowedView);
+    window.localStorage.setItem(VIEW_STORAGE_KEY, allowedView);
+    window.history.pushState(null, "", viewHash(allowedView));
+  };
+
+  const handleLogin = (user: AuthUser) => {
+    setAuthUser(user);
+    void Promise.all([overviewState.refresh(), insightsState.refresh(), whatsapp.refresh()]);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await eletrofrioApi.logout();
+    } catch {
+      // Logout local basta quando o token ja expirou.
+    }
+    setAuthToken(null);
+    setAuthUser(null);
   };
 
   const runCollector = async () => {
+    if (!isAdmin) return;
     try {
       setCollectorBusy(true);
       setCollectorMessage(null);
@@ -2740,6 +2848,7 @@ export default function HomePage() {
         collectorBusy={collectorBusy}
         collectorMessage={collectorMessage}
         whatsappConnected={Boolean(whatsapp.status?.connected)}
+        canRunCollector={isAdmin}
       />
     ),
     ativos: (
@@ -2752,9 +2861,21 @@ export default function HomePage() {
     ),
     alertas: <InsightsView insights={insightsState.insights} />,
     operacao: <OperationView />,
-    regras: <RulesView />,
+    regras: <RulesView canManage={isAdmin} />,
     whatsapp: <WhatsappView whatsapp={whatsapp} />,
   } satisfies Record<ViewId, React.ReactNode>;
+
+  if (!authChecked) {
+    return (
+      <main className="industrial-ui grid min-h-screen place-items-center text-slate-100">
+        <Loader2 className="h-8 w-8 animate-spin text-sky-200" />
+      </main>
+    );
+  }
+
+  if (!authUser) {
+    return <LoginView onLogin={handleLogin} />;
+  }
 
   return (
     <main className="industrial-ui min-h-screen text-slate-100">
@@ -2762,12 +2883,16 @@ export default function HomePage() {
         <Header
           title={titleByView[activeView]}
           connected={Boolean(whatsapp.status?.connected)}
+          userLabel={authUser.customer_name || authUser.username}
+          userRole={authUser.role}
+          onLogout={handleLogout}
         />
 
         <div className="grid flex-1 lg:grid-cols-[64px_minmax(0,1fr)]">
           <Sidebar
             activeView={activeView}
             onViewChange={changeView}
+            role={authUser.role}
             totals={{
               units: overviewState.overview?.totals.units,
               devices: overviewState.overview?.totals.devices,

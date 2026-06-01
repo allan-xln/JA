@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from api.auth import AuthUser, current_user, require_admin
 from api.database import supabase
 from api.repositories import list_anomalies, list_collector_runs, parse_utc_datetime, patch_anomaly, reconcile_stale_collector_runs, utc_now_iso
 from api.scheduler import CollectorBusyError, collector_status, get_settings_status, run_collector_managed, save_settings
@@ -47,7 +48,7 @@ def require_supabase() -> None:
 
 
 @router.get("/settings")
-def get_collector_settings():
+def get_collector_settings(user: AuthUser = Depends(require_admin)):
     require_supabase()
     try:
         return get_settings_status()
@@ -56,7 +57,7 @@ def get_collector_settings():
 
 
 @router.put("/settings")
-def put_collector_settings(payload: CollectorSettingsPayload):
+def put_collector_settings(payload: CollectorSettingsPayload, user: AuthUser = Depends(require_admin)):
     require_supabase()
     try:
         return save_settings(payload.enabled, payload.intervalMinutes, payload.alertCooldownMinutes)
@@ -65,7 +66,7 @@ def put_collector_settings(payload: CollectorSettingsPayload):
 
 
 @router.post("/run-now")
-def run_collector_now():
+def run_collector_now(user: AuthUser = Depends(require_admin)):
     require_supabase()
     try:
         return run_collector_managed("manual")
@@ -76,7 +77,7 @@ def run_collector_now():
 
 
 @router.get("/status")
-def get_collector_status():
+def get_collector_status(user: AuthUser = Depends(current_user)):
     require_supabase()
     try:
         return collector_status()
@@ -85,7 +86,7 @@ def get_collector_status():
 
 
 @router.get("/runs")
-def get_collector_runs(limit: int = Query(default=30, ge=1, le=100)):
+def get_collector_runs(limit: int = Query(default=30, ge=1, le=100), user: AuthUser = Depends(require_admin)):
     require_supabase()
     try:
         fetch_limit = max(50, limit * 3)
@@ -101,10 +102,11 @@ def get_collector_runs(limit: int = Query(default=30, ge=1, le=100)):
 def get_collector_anomalies(
     limit: int = Query(default=100, ge=1, le=200),
     status: str | None = Query(default=None),
+    user: AuthUser = Depends(current_user),
 ):
     require_supabase()
     try:
-        return {"items": list_anomalies(limit, status)}
+        return {"items": list_anomalies(limit, status, user.scope)}
     except Exception:
         return {"items": []}
 
@@ -133,7 +135,7 @@ def fallback_collector_status(error: str) -> dict:
 
 
 @router.post("/anomalies/{anomaly_id}/resolve")
-def resolve_anomaly(anomaly_id: str):
+def resolve_anomaly(anomaly_id: str, user: AuthUser = Depends(require_admin)):
     require_supabase()
     row = patch_anomaly(anomaly_id, {"status": "resolved", "resolved_at": utc_now_iso()})
     if not row:
@@ -142,7 +144,7 @@ def resolve_anomaly(anomaly_id: str):
 
 
 @router.post("/anomalies/{anomaly_id}/ignore")
-def ignore_anomaly(anomaly_id: str):
+def ignore_anomaly(anomaly_id: str, user: AuthUser = Depends(require_admin)):
     require_supabase()
     row = patch_anomaly(anomaly_id, {"status": "ignored", "resolved_at": utc_now_iso()})
     if not row:

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import settings
+from api.routes.auth import router as auth_router
 from api.routes.collector import router as collector_router
 from api.routes.eletrofrio import router as eletrofrio_router
 from api.scheduler import start_scheduler, stop_scheduler
@@ -36,6 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(eletrofrio_router)
 app.include_router(collector_router)
 
