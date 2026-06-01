@@ -16,7 +16,7 @@ export function Header({
   onLogout,
 }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 border-b border-white/10 bg-[#0b1118]/95 px-3 py-3 text-slate-100 md:px-6">
+    <header className="glass-header sticky top-0 z-30 border-b border-white/10 px-3 py-3 text-slate-100 md:px-6">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate text-lg font-semibold md:text-xl">

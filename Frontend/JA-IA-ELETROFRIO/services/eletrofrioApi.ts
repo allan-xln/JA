@@ -96,7 +96,7 @@ async function apiFetch<T>(
 
   if (!response.ok) {
     let message = `Erro ${response.status} ao acessar ${endpoint}`;
-    if (response.status === 401) {
+    if (response.status === 401 && token) {
       setAuthToken(null);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("eletrofrio-auth-expired"));

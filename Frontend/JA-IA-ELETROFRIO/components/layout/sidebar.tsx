@@ -34,7 +34,7 @@ export function Sidebar({ activeView, onViewChange, role = "admin", totals }: Si
   const visibleItems = role === "admin" ? items : items.filter((item) => item.id !== "operacao");
 
   return (
-    <aside className="fixed inset-x-0 bottom-0 z-40 flex border-t border-white/10 bg-[#0b1118]/95 text-slate-200 lg:static lg:inset-auto lg:z-auto lg:flex-col lg:border-r lg:border-t-0 lg:bg-[#0b1118]">
+    <aside className="fixed inset-x-0 bottom-0 z-40 flex border-t border-white/10 bg-[#0b1118]/95 text-slate-200 shadow-xl lg:static lg:inset-auto lg:z-auto lg:flex-col lg:border-r lg:border-t-0 lg:bg-[#0b1118]/95">
       <div className="hidden border-b border-white/10 p-3 lg:flex lg:items-center lg:justify-center">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-sm font-bold text-sky-200">
           EF
@@ -52,7 +52,7 @@ export function Sidebar({ activeView, onViewChange, role = "admin", totals }: Si
               onClick={() => onViewChange(item.id)}
               title={item.label}
               aria-label={item.label}
-              className={`group flex h-12 min-w-0 items-center justify-center rounded-lg border text-center transition lg:w-12 ${
+              className={`group flex h-12 min-w-0 items-center justify-center rounded-lg border text-center transition hover:scale-[1.03] lg:w-12 ${
                 activeView === item.id
                   ? "border-sky-300/35 bg-white/[0.08] text-sky-100"
                   : "border-transparent text-slate-500 hover:border-white/10 hover:bg-white/[0.055] hover:text-slate-100"

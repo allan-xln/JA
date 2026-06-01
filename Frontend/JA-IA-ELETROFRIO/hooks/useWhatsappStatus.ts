@@ -21,7 +21,7 @@ function friendlyWhatsappError(err: unknown) {
   return message;
 }
 
-export function useWhatsappStatus(autoRefreshMs = 10000) {
+export function useWhatsappStatus(autoRefreshMs = 10000, enabled = true) {
   const [status, setStatus] = useState<WhatsappStatus | null>(null);
   const [qr, setQr] = useState<WhatsappQr | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,6 +31,10 @@ export function useWhatsappStatus(autoRefreshMs = 10000) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     setError(null);
     const [statusResult, qrResult] = await Promise.allSettled([
       eletrofrioApi.whatsappStatus(),
@@ -58,7 +62,7 @@ export function useWhatsappStatus(autoRefreshMs = 10000) {
     }
 
     setLoading(false);
-  }, []);
+  }, [enabled]);
 
   const refreshQr = useCallback(async () => {
     try {
@@ -106,16 +110,20 @@ export function useWhatsappStatus(autoRefreshMs = 10000) {
   );
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     void refresh();
-  }, [refresh]);
+  }, [enabled, refresh]);
 
   useEffect(() => {
-    if (!autoRefreshMs) return;
+    if (!enabled || !autoRefreshMs) return;
     const interval = setInterval(() => {
       void refresh();
     }, autoRefreshMs);
     return () => clearInterval(interval);
-  }, [autoRefreshMs, refresh]);
+  }, [autoRefreshMs, enabled, refresh]);
 
   return useMemo(
     () => ({ status, qr, loading, busy, connecting, message, error, refresh, refreshQr, runAction }),

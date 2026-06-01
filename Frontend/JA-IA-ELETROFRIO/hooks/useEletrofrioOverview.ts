@@ -23,7 +23,7 @@ type OverviewState = {
   refresh: () => Promise<void>;
 };
 
-export function useEletrofrioOverview(): OverviewState {
+export function useEletrofrioOverview(enabled = true): OverviewState {
   const [health, setHealth] = useState<OverviewState["health"]>(null);
   const [overview, setOverview] = useState<EletrofrioOverview | null>(null);
   const [units, setUnits] = useState<EletrofrioUnit[]>([]);
@@ -34,6 +34,10 @@ export function useEletrofrioOverview(): OverviewState {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     try {
       setError(null);
       const [healthData, overviewData, unitsData, devicesData, alarmsData, telemetryData] =
@@ -57,11 +61,15 @@ export function useEletrofrioOverview(): OverviewState {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     void refresh();
-  }, [refresh]);
+  }, [enabled, refresh]);
 
   return useMemo(
     () => ({ health, overview, units, devices, alarms, telemetry, loading, error, refresh }),

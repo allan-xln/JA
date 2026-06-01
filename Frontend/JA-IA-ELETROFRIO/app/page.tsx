@@ -543,7 +543,7 @@ function LoginView({ onLogin }: { onLogin: (user: AuthUser) => void }) {
 
   return (
     <main className="industrial-ui grid min-h-screen place-items-center px-4 text-slate-100">
-      <form onSubmit={submit} className="grid w-full max-w-sm gap-4 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
+      <form onSubmit={submit} className="login-card grid w-full max-w-sm gap-4 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
         <div>
           <h1 className="text-2xl font-semibold">Eletrofrio</h1>
           <p className="mt-1 text-sm text-white/55">Acesse seu ambiente operacional.</p>
@@ -2733,9 +2733,10 @@ export default function HomePage() {
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const overviewState = useEletrofrioOverview();
-  const insightsState = useEletrofrioInsights();
-  const whatsapp = useWhatsappStatus(30000);
+  const isAuthenticated = Boolean(authUser);
+  const overviewState = useEletrofrioOverview(isAuthenticated);
+  const insightsState = useEletrofrioInsights(isAuthenticated);
+  const whatsapp = useWhatsappStatus(30000, isAuthenticated);
   const [collectorBusy, setCollectorBusy] = useState(false);
   const [collectorMessage, setCollectorMessage] = useState<string | null>(null);
   const isAdmin = authUser?.role === "admin";
@@ -2901,7 +2902,7 @@ export default function HomePage() {
           />
 
           <section className="min-w-0 flex-1 px-3 pb-24 pt-3 sm:px-4 md:px-5 lg:px-6 lg:pb-6 lg:pt-4">
-            <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4">
+            <div className="animate-fade-up mx-auto flex w-full max-w-[1360px] flex-col gap-4">
               {overviewState.error ? <ErrorBanner message={overviewState.error} /> : null}
               {insightsState.error && activeView === "alertas" ? (
                 <ErrorBanner message={insightsState.error} />

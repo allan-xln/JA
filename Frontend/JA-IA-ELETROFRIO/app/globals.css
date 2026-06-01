@@ -24,7 +24,8 @@ html {
 
 body {
   margin: 0;
-  background: var(--background);
+  background:
+    linear-gradient(180deg, #071019 0%, #0b1118 48%, #081018 100%);
   color: var(--foreground);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -48,8 +49,51 @@ body {
 
 .industrial-ui {
   min-height: 100vh;
-  background: #0b1118;
+  background:
+    linear-gradient(180deg, rgba(56, 189, 248, 0.055), transparent 34%),
+    linear-gradient(90deg, rgba(34, 197, 94, 0.035), transparent 28%, rgba(14, 165, 233, 0.035)),
+    #0b1118;
   color: #eef3f8;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-line {
+  0%,
+  100% {
+    border-color: rgba(125, 211, 252, 0.16);
+  }
+  50% {
+    border-color: rgba(125, 211, 252, 0.34);
+  }
+}
+
+.animate-fade-up,
+.industrial-ui form,
+.industrial-ui section.rounded-xl,
+.industrial-ui article.rounded-xl {
+  animation: fade-up 420ms ease both;
+}
+
+.glass-header {
+  background:
+    linear-gradient(90deg, rgba(11, 17, 24, 0.92), rgba(17, 26, 37, 0.88)) !important;
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24) !important;
+}
+
+.login-card {
+  animation: fade-up 520ms ease both, pulse-line 4s ease-in-out infinite;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34) !important;
 }
 
 .industrial-ui .rounded-2xl {
@@ -139,6 +183,35 @@ body {
 
 .industrial-ui button {
   letter-spacing: 0;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.industrial-ui button:hover {
+  transform: translateY(-1px);
+}
+
+.industrial-ui button:active {
+  transform: translateY(0);
+}
+
+.industrial-ui section.rounded-xl,
+.industrial-ui article.rounded-xl,
+.industrial-ui .rounded-2xl {
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.industrial-ui section.rounded-xl:hover,
+.industrial-ui article.rounded-xl:hover {
+  border-color: rgba(125, 211, 252, 0.2) !important;
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.18) !important;
 }
 
 .industrial-ui [class*="tracking-"] {
@@ -149,17 +222,24 @@ body {
   text-transform: none !important;
 }
 
-.industrial-ui [class*="backdrop-blur"] {
-  backdrop-filter: none !important;
-}
-
 .industrial-ui [class*="shadow-"] {
-  box-shadow: none !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16) !important;
 }
 
 .industrial-ui .shadow-2xl,
 .industrial-ui .shadow-xl {
-  box-shadow: none !important;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.22) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @media (max-width: 640px) {
