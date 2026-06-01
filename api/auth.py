@@ -217,6 +217,9 @@ def authenticate_user(username: str, password: str) -> AuthUser | None:
             logger.warning("Falha ao autenticar usuario no Supabase: %s", exc)
         store = _load_demo_store()
         user = _demo_user(username)
+    if user is None:
+        store = _load_demo_store()
+        user = _demo_user(username)
 
     if not user or not user.get("is_active", True):
         return None

@@ -68,6 +68,7 @@ create index if not exists idx_eletrofrio_customer_devices_customer_id on public
 create index if not exists idx_eletrofrio_customer_devices_dispositivo_id on public.eletrofrio_customer_devices(dispositivo_id);
 create index if not exists idx_eletrofrio_sessions_token_hash on public.eletrofrio_sessions(token_hash);
 create index if not exists idx_eletrofrio_sessions_expires_at on public.eletrofrio_sessions(expires_at);
+
 do $$
 begin
   if to_regclass('public.eletrofrio_communication_logs') is not null then
