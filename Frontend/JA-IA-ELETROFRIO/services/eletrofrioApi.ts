@@ -16,6 +16,10 @@ import type {
   EletrofrioOverview,
   EletrofrioTelemetry,
   EletrofrioUnit,
+  NotificationEvent,
+  NotificationProcessResult,
+  NotificationRecipient,
+  NotificationStatus,
   OperationalRule,
   OperationalSummaryResult,
   RagQueryLog,
@@ -138,15 +142,15 @@ export const eletrofrioApi = {
   units: () => apiFetch<ApiListResponse<EletrofrioUnit>>("/api/eletrofrio/units"),
   devices: () =>
     apiFetch<ApiListResponse<EletrofrioDevice>>("/api/eletrofrio/devices"),
-  alarms: (limit = 300) =>
+  alarms: (limit = 120) =>
     apiFetch<ApiListResponse<EletrofrioAlarm>>(
       `/api/eletrofrio/alarms?limit=${limit}`
     ),
-  telemetry: (limit = 800) =>
+  telemetry: (limit = 120) =>
     apiFetch<ApiListResponse<EletrofrioTelemetry>>(
       `/api/eletrofrio/telemetry?limit=${limit}`
     ),
-  insights: (limit = 100) =>
+  insights: (limit = 80) =>
     apiFetch<ApiListResponse<EletrofrioInsight>>(
       `/api/eletrofrio/insights?limit=${limit}`
     ),
@@ -227,13 +231,13 @@ export const eletrofrioApi = {
     ),
   communications: (params: { limit?: number; type?: string; status?: string; search?: string } = {}) => {
     const query = new URLSearchParams();
-    query.set("limit", String(params.limit ?? 80));
+    query.set("limit", String(params.limit ?? 50));
     if (params.type) query.set("type", params.type);
     if (params.status) query.set("status", params.status);
     if (params.search) query.set("search", params.search);
     return apiFetch<CommunicationResponse<CommunicationLog>>(`/api/eletrofrio/communications?${query.toString()}`);
   },
-  communicationTimeline: (limit = 80) =>
+  communicationTimeline: (limit = 50) =>
     apiFetch<CommunicationResponse<CommunicationLog>>(`/api/eletrofrio/communications/timeline?limit=${limit}`),
   ragHistory: (params: { limit?: number; search?: string } = {}) => {
     const query = new URLSearchParams();
@@ -243,11 +247,30 @@ export const eletrofrioApi = {
   },
   whatsappMessages: (params: { limit?: number; type?: string; status?: string } = {}) => {
     const query = new URLSearchParams();
-    query.set("limit", String(params.limit ?? 80));
+    query.set("limit", String(params.limit ?? 50));
     if (params.type) query.set("type", params.type);
     if (params.status) query.set("status", params.status);
     return apiFetch<CommunicationResponse<WhatsappMessageLog>>(`/api/eletrofrio/whatsapp/messages?${query.toString()}`);
   },
+  notificationStatus: () =>
+    apiFetch<NotificationStatus>("/api/eletrofrio/notifications/status"),
+  notificationProcess: () =>
+    apiFetch<NotificationProcessResult>("/api/eletrofrio/notifications/process", {
+      method: "POST",
+    }),
+  notificationEvents: (params: { limit?: number; status?: string } = {}) => {
+    const query = new URLSearchParams();
+    query.set("limit", String(params.limit ?? 50));
+    if (params.status) query.set("status", params.status);
+    return apiFetch<CommunicationResponse<NotificationEvent>>(`/api/eletrofrio/notifications/events?${query.toString()}`);
+  },
+  notificationRecipients: () =>
+    apiFetch<CommunicationResponse<NotificationRecipient>>("/api/eletrofrio/notifications/recipients"),
+  notificationTest: (payload: { phone?: string; recipient_id?: string; message: string; dry_run?: boolean }) =>
+    apiFetch<Record<string, unknown>>("/api/eletrofrio/notifications/test", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   collectorSettings: () =>
     apiFetch<CollectorSettings>("/api/collector/settings"),
   collectorStatus: () =>

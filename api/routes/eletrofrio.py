@@ -18,6 +18,14 @@ from api.communications import (
 )
 from api.config import settings
 from api.database import supabase
+from api.notifications.auto_notifier import (
+    create_recipient,
+    list_events,
+    list_recipients,
+    notification_status,
+    process_notifications,
+    update_recipient,
+)
 from api.repositories import list_alarms, list_devices, list_insights, list_telemetry, list_units
 from api.rules.rule_engine import evaluate_recent_operation
 from api.rules.rule_repository import (
@@ -36,6 +44,7 @@ from api.scheduler import CollectorBusyError, run_collector_managed
 
 
 router = APIRouter(prefix="/api/eletrofrio", tags=["eletrofrio-real"])
+_overview_cache: dict[str, tuple[float, dict]] = {}
 
 
 class WhatsAppTestPayload(BaseModel):
@@ -67,6 +76,37 @@ class OperationalRulePayload(BaseModel):
     alarm_text_pattern: str | None = None
     explanation_template: str | None = None
     recommended_action_template: str | None = None
+
+
+class NotificationRecipientPayload(BaseModel):
+    customer_id: str | None = None
+    role: str = "client"
+    name: str | None = None
+    phone: str
+    channel: str = "whatsapp"
+    enabled: bool = True
+    receive_critical: bool = True
+    receive_warning_recurrent: bool = True
+    cooldown_minutes: int = 60
+
+
+class NotificationRecipientPatchPayload(BaseModel):
+    customer_id: str | None = None
+    role: str | None = None
+    name: str | None = None
+    phone: str | None = None
+    channel: str | None = None
+    enabled: bool | None = None
+    receive_critical: bool | None = None
+    receive_warning_recurrent: bool | None = None
+    cooldown_minutes: int | None = None
+
+
+class NotificationTestPayload(BaseModel):
+    recipient_id: str | None = None
+    phone: str | None = None
+    message: str = "Teste de notificação operacional Eletrofrio."
+    dry_run: bool = True
 
 
 def handle_assistant_question(payload: AssistantQueryPayload, user: AuthUser):
@@ -119,15 +159,23 @@ def eletrofrio_health():
 @router.get("/overview")
 def eletrofrio_overview(user: AuthUser = Depends(current_user)):
     require_supabase()
+    cache_key = f"{user.role}:{user.customer_id or 'admin'}"
+    now = time.monotonic()
+    cached = _overview_cache.get(cache_key)
+    if cached and now - cached[0] <= max(0, settings.overview_cache_seconds):
+        return cached[1]
+
     units = list_units(user.scope)
     devices = list_devices(user.scope)
-    alarms = list_alarms(300, user.scope)
-    telemetry = list_telemetry(800, user.scope)
-    insights = list_insights(50, user.scope)
+    alarms = list_alarms(200, user.scope)
+    telemetry_limit = 500 if user.scope.is_admin else 800
+    telemetry = list_telemetry(telemetry_limit, user.scope)
+    insights = list_insights(20, user.scope)
     metrics = build_metrics(units, devices, alarms, telemetry)
     metrics["totals"]["insights"] = len(insights)
-    metrics["latest_insights"] = insights[:10]
+    metrics["latest_insights"] = insights[:5]
     metrics["scope"] = user.public_dict()
+    _overview_cache[cache_key] = (now, metrics)
     return metrics
 
 
@@ -144,21 +192,29 @@ def eletrofrio_devices(user: AuthUser = Depends(current_user)):
 
 
 @router.get("/alarms")
-def eletrofrio_alarms(limit: int = 200, user: AuthUser = Depends(current_user)):
+def eletrofrio_alarms(limit: int = 50, offset: int = 0, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return {"items": list_alarms(limit, user.scope)}
+    return {"items": list_alarms(min(max(limit, 1), 200), user.scope, max(offset, 0))}
 
 
 @router.get("/telemetry")
-def eletrofrio_telemetry(limit: int = 500, user: AuthUser = Depends(current_user)):
+def eletrofrio_telemetry(limit: int = 100, offset: int = 0, dispositivo_id: int | None = None, loja_id: int | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return {"items": list_telemetry(limit, user.scope)}
+    return {
+        "items": list_telemetry(
+            min(max(limit, 1), 200),
+            user.scope,
+            max(offset, 0),
+            dispositivo_id=dispositivo_id,
+            loja_id=loja_id,
+        )
+    }
 
 
 @router.get("/insights")
-def eletrofrio_insights(limit: int = 100, user: AuthUser = Depends(current_user)):
+def eletrofrio_insights(limit: int = 50, offset: int = 0, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return {"items": list_insights(limit, user.scope)}
+    return {"items": list_insights(min(max(limit, 1), 200), user.scope, max(offset, 0))}
 
 
 @router.get("/rules/defaults/preview")
@@ -273,27 +329,87 @@ def eletrofrio_assistant_suggestions():
 
 
 @router.get("/communications")
-def eletrofrio_communications(limit: int = 80, type: str | None = None, status: str | None = None, search: str | None = None, user: AuthUser = Depends(current_user)):
+def eletrofrio_communications(limit: int = 50, type: str | None = None, status: str | None = None, search: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_communications(limit=limit, type_=type, status=status, search=search, scope=user.scope)
+    return list_communications(limit=min(max(limit, 1), 200), type_=type, status=status, search=search, scope=user.scope)
 
 
 @router.get("/communications/timeline")
-def eletrofrio_communications_timeline(limit: int = 80, user: AuthUser = Depends(current_user)):
+def eletrofrio_communications_timeline(limit: int = 50, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return communication_timeline(limit, user.scope)
+    return communication_timeline(min(max(limit, 1), 200), user.scope)
 
 
 @router.get("/rag/history")
 def eletrofrio_rag_history(limit: int = 50, search: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_rag_queries(limit=limit, search=search, scope=user.scope)
+    return list_rag_queries(limit=min(max(limit, 1), 200), search=search, scope=user.scope)
 
 
 @router.get("/whatsapp/messages")
-def eletrofrio_whatsapp_messages(limit: int = 80, status: str | None = None, type: str | None = None, user: AuthUser = Depends(current_user)):
+def eletrofrio_whatsapp_messages(limit: int = 50, status: str | None = None, type: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_whatsapp_messages(limit=limit, status=status, type_=type, scope=user.scope)
+    return list_whatsapp_messages(limit=min(max(limit, 1), 200), status=status, type_=type, scope=user.scope)
+
+
+@router.get("/notifications/status")
+def eletrofrio_notifications_status(user: AuthUser = Depends(current_user)):
+    require_supabase()
+    return notification_status(user.scope)
+
+
+@router.post("/notifications/process")
+def eletrofrio_notifications_process(user: AuthUser = Depends(require_admin)):
+    require_supabase()
+    return process_notifications(user.scope)
+
+
+@router.get("/notifications/events")
+def eletrofrio_notifications_events(limit: int = 80, status: str | None = None, user: AuthUser = Depends(current_user)):
+    require_supabase()
+    return list_events(limit=min(max(limit, 1), 200), status=status, scope=user.scope)
+
+
+@router.get("/notifications/recipients")
+def eletrofrio_notifications_recipients(user: AuthUser = Depends(current_user)):
+    require_supabase()
+    return list_recipients(user.scope)
+
+
+@router.post("/notifications/recipients")
+def eletrofrio_notifications_recipients_create(payload: NotificationRecipientPayload, user: AuthUser = Depends(require_admin)):
+    require_supabase()
+    return create_recipient(payload.dict())
+
+
+@router.patch("/notifications/recipients/{recipient_id}")
+def eletrofrio_notifications_recipients_update(recipient_id: str, payload: NotificationRecipientPatchPayload, user: AuthUser = Depends(require_admin)):
+    require_supabase()
+    data = payload.dict(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="Nenhum campo para atualizar.")
+    return update_recipient(recipient_id, data)
+
+
+@router.post("/notifications/test")
+def eletrofrio_notifications_test(payload: NotificationTestPayload, user: AuthUser = Depends(require_admin)):
+    require_supabase()
+    phone = payload.phone
+    if payload.recipient_id:
+        recipients = list_recipients(user.scope).get("items", [])
+        recipient = next((item for item in recipients if str(item.get("id")) == str(payload.recipient_id)), None)
+        if not recipient:
+            raise HTTPException(status_code=404, detail="Destinatário não encontrado.")
+        phone = recipient.get("phone") or phone
+    if not phone:
+        raise HTTPException(status_code=400, detail="Informe phone ou recipient_id para envio de teste.")
+    if payload.dry_run:
+        return {
+            "status": "dry_run",
+            "phone": phone,
+            "message_preview": payload.message[:180],
+        }
+    return whatsapp_request("POST", "/send-test", {"phone": phone, "message": payload.message})
 
 
 @router.post("/assistant/ask")

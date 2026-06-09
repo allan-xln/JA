@@ -40,18 +40,22 @@ export function useEletrofrioOverview(enabled = true): OverviewState {
     }
     try {
       setError(null);
-      const [healthData, overviewData, unitsData, devicesData, alarmsData, telemetryData] =
-        await Promise.all([
-          eletrofrioApi.health(),
-          eletrofrioApi.overview(),
-          eletrofrioApi.units(),
-          eletrofrioApi.devices(),
-          eletrofrioApi.alarms(),
-          eletrofrioApi.telemetry(),
-        ]);
+      const [healthData, overviewData] = await Promise.all([
+        eletrofrioApi.health(),
+        eletrofrioApi.overview(),
+      ]);
 
       setHealth(healthData);
       setOverview(overviewData);
+      setLoading(false);
+
+      const [unitsData, devicesData, alarmsData, telemetryData] = await Promise.all([
+        eletrofrioApi.units(),
+        eletrofrioApi.devices(),
+        eletrofrioApi.alarms(120),
+        eletrofrioApi.telemetry(120),
+      ]);
+
       setUnits(unitsData.items || []);
       setDevices(devicesData.items || []);
       setAlarms(alarmsData.items || []);

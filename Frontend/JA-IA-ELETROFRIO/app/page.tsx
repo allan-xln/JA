@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
+import Image from "next/image";
 
 import { Header } from "@/components/layout/header";
 import { Sidebar, type ViewId } from "@/components/layout/sidebar";
@@ -34,6 +35,9 @@ import type {
   EletrofrioInsight,
   EletrofrioOverview,
   EletrofrioTelemetry,
+  NotificationEvent,
+  NotificationRecipient,
+  NotificationStatus,
   OperationalRule,
   OperationalSummaryResult,
   RagQueryLog,
@@ -500,7 +504,7 @@ function Panel({
 }) {
   return (
     <section
-      className={`rounded-xl border border-white/10 bg-[#121a24] p-3 sm:p-4 ${className}`}
+      className={`rounded-xl border border-white/10 bg-white/[0.82] p-3 shadow-sm sm:p-4 ${className}`}
     >
       {children}
     </section>
@@ -509,7 +513,7 @@ function Panel({
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-white/12 bg-white/[0.035] p-8 text-center text-sm text-slate-400">
+    <div className="rounded-xl border border-dashed border-white/12 bg-white/[0.55] p-8 text-center text-sm text-slate-500">
       {text}
     </div>
   );
@@ -546,9 +550,19 @@ function LoginView({ onLogin }: { onLogin: (user: AuthUser) => void }) {
   };
 
   return (
-    <main className="industrial-ui grid min-h-screen place-items-center px-4 text-slate-100">
-      <form onSubmit={submit} className="login-card grid w-full max-w-sm gap-4 rounded-2xl border border-white/10 bg-white/[0.045] p-5">
+    <main className="industrial-ui grid min-h-screen place-items-center px-4 text-slate-800">
+      <form onSubmit={submit} className="login-card grid w-full max-w-sm gap-4 rounded-2xl border border-white/10 bg-white/[0.86] p-5">
         <div>
+          <div className="mb-4 rounded-xl bg-white p-3 shadow-sm">
+            <Image
+              src="/eletrofrio-logo.png"
+              alt="Eletrofrio Refrigeração"
+              width={800}
+              height={163}
+              className="h-auto w-full object-contain"
+              priority
+            />
+          </div>
           <h1 className="text-2xl font-semibold">Eletrofrio</h1>
           <p className="mt-1 text-sm text-white/55">Acesse seu ambiente operacional.</p>
         </div>
@@ -613,7 +627,7 @@ function MetricCard({
   }[tone];
 
   return (
-    <article className="rounded-xl border border-white/10 bg-[#121a24] p-3 sm:p-4">
+    <article className="rounded-xl border border-white/10 bg-white/[0.82] p-3 shadow-sm sm:p-4">
       <p className="text-sm font-medium text-slate-400">{label}</p>
       <h3 className="mt-2 text-xl font-semibold sm:text-2xl">{value}</h3>
       <p className={`mt-2 text-sm ${toneClass}`}>{helper}</p>
@@ -1516,7 +1530,7 @@ function AssistantView({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
-function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
+function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; canManage: boolean }) {
   const [phone, setPhone] = useState("");
   const [testMessage, setTestMessage] = useState(
     "Validação do canal operacional Eletrofrio."
@@ -1529,6 +1543,11 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
   const [timeline, setTimeline] = useState<CommunicationLog[]>([]);
   const [ragHistory, setRagHistory] = useState<RagQueryLog[]>([]);
   const [messageHistory, setMessageHistory] = useState<WhatsappMessageLog[]>([]);
+  const [notificationStatus, setNotificationStatus] = useState<NotificationStatus | null>(null);
+  const [notificationEvents, setNotificationEvents] = useState<NotificationEvent[]>([]);
+  const [notificationRecipients, setNotificationRecipients] = useState<NotificationRecipient[]>([]);
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const connectedPhone = phoneFromWhatsappJid(whatsapp.status?.phone);
@@ -1555,6 +1574,9 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
       return true;
     });
   }, [communications]);
+  const notificationCounts = notificationStatus?.events_today || {};
+  const notificationOnline = Boolean(notificationStatus?.whatsapp?.connected);
+  const notificationDryRun = Boolean(notificationStatus?.dry_run || notificationStatus?.whatsapp?.dryRun);
 
   const typeLabel = (value?: string | null) => {
     const labels: Record<string, string> = {
@@ -1575,6 +1597,8 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
       received: "Recebido",
       failed: "Falhou",
       "dry-run": "Dry-run",
+      dry_run: "Dry-run",
+      skipped: "Ignorado",
       answered: "Respondido",
       connected: "Conectado",
       disconnected: "Desconectado",
@@ -1587,22 +1611,43 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
     try {
       setHistoryLoading(true);
       setHistoryError(null);
-      const [communicationsResult, timelineResult, ragResult, messagesResult] = await Promise.all([
+      const [
+        communicationsResult,
+        timelineResult,
+        ragResult,
+        messagesResult,
+        notificationsStatusResult,
+        notificationEventsResult,
+        notificationRecipientsResult,
+      ] = await Promise.all([
         eletrofrioApi.communications({
-          limit: 80,
+          limit: 50,
           type: communicationType || undefined,
           status: communicationStatus || undefined,
           search: communicationSearch || undefined,
         }),
-        eletrofrioApi.communicationTimeline(80),
+        eletrofrioApi.communicationTimeline(50),
         eletrofrioApi.ragHistory({ limit: 50, search: communicationSearch || undefined }),
-        eletrofrioApi.whatsappMessages({ limit: 80 }),
+        eletrofrioApi.whatsappMessages({ limit: 50 }),
+        eletrofrioApi.notificationStatus(),
+        eletrofrioApi.notificationEvents({ limit: 50 }),
+        eletrofrioApi.notificationRecipients(),
       ]);
       setCommunications(communicationsResult.items);
       setTimeline(timelineResult.items);
       setRagHistory(ragResult.items);
       setMessageHistory(messagesResult.items);
-      const schemaMessage = communicationsResult.message || timelineResult.message || ragResult.message || messagesResult.message;
+      setNotificationStatus(notificationsStatusResult);
+      setNotificationEvents(notificationEventsResult.items);
+      setNotificationRecipients(notificationRecipientsResult.items);
+      const schemaMessage =
+        communicationsResult.message ||
+        timelineResult.message ||
+        ragResult.message ||
+        messagesResult.message ||
+        notificationsStatusResult.message ||
+        notificationEventsResult.message ||
+        notificationRecipientsResult.message;
       if (schemaMessage) setHistoryError(schemaMessage);
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : "Não foi possível carregar o histórico de comunicação.");
@@ -1645,6 +1690,46 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
     setTimeout(() => void loadCommunicationHistory(), 1200);
   };
 
+  const processNotificationQueue = async () => {
+    try {
+      setNotificationBusy(true);
+      setNotificationMessage(null);
+      const result = await eletrofrioApi.notificationProcess();
+      setNotificationMessage(
+        `Processadas: ${result.checked} analisadas, ${result.sent} enviadas, ${result.dry_run} dry-run, ${result.skipped} ignoradas, ${result.failed} falhas, ${result.ai_calls_used || 0} chamadas de IA.`
+      );
+      await loadCommunicationHistory();
+    } catch (err) {
+      setNotificationMessage(err instanceof Error ? err.message : "Não foi possível processar notificações.");
+    } finally {
+      setNotificationBusy(false);
+    }
+  };
+
+  const sendNotificationDryRunTest = async () => {
+    const targetPhone = phone.trim() || connectedPhone;
+    if (!targetPhone) {
+      setNotificationMessage("Informe um telefone com DDD ou conecte um aparelho para usar o número da sessão.");
+      return;
+    }
+
+    try {
+      setNotificationBusy(true);
+      setNotificationMessage(null);
+      await eletrofrioApi.notificationTest({
+        phone: targetPhone,
+        message: testMessage,
+        dry_run: true,
+      });
+      setNotificationMessage("Teste de notificação registrado em modo dry-run.");
+      await loadCommunicationHistory();
+    } catch (err) {
+      setNotificationMessage(err instanceof Error ? err.message : "Não foi possível registrar o teste.");
+    } finally {
+      setNotificationBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <Panel>
@@ -1682,6 +1767,102 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
         <StatusCard label="Consultas hoje" value={answeredToday} tone={answeredToday ? "success" : "muted"} />
       </section>
 
+      <Panel>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="text-xl font-semibold">Alertas automáticos</h3>
+            <p className="mt-2 text-sm leading-6 text-white/55">
+              Envia apenas ocorrências relevantes, respeitando cliente, cooldown e duplicidade.
+            </p>
+          </div>
+          {canManage ? (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                disabled={notificationBusy}
+                onClick={() => void processNotificationQueue()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-400/15 disabled:opacity-60"
+              >
+                {notificationBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+                Processar agora
+              </button>
+              <button
+                type="button"
+                disabled={notificationBusy}
+                onClick={() => void sendNotificationDryRunTest()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm font-semibold text-white/75 transition hover:bg-white/[0.08] disabled:opacity-60"
+              >
+                <Send className="h-4 w-4" />
+                Teste dry-run
+              </button>
+            </div>
+          ) : null}
+        </div>
+        {notificationMessage ? (
+          <div className="mt-4 rounded-xl border border-sky-300/20 bg-sky-300/10 px-4 py-3 text-sm text-sky-100">
+            {notificationMessage}
+          </div>
+        ) : null}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <StatusCard label="Motor" value={notificationOnline ? "WhatsApp online" : "Sem conexão"} tone={notificationOnline ? "success" : "warning"} />
+          <StatusCard label="Modo" value={notificationDryRun ? "Dry-run" : "Envio real"} tone={notificationDryRun ? "warning" : "success"} />
+          <StatusCard label="Destinatários" value={notificationStatus?.recipients ?? notificationRecipients.length} tone={notificationRecipients.length ? "success" : "muted"} />
+          <StatusCard label="Hoje" value={`${notificationCounts.sent || 0} env. / ${notificationCounts.dry_run || 0} dry-run`} tone={(notificationCounts.sent || notificationCounts.dry_run) ? "success" : "muted"} />
+        </div>
+        <div className="mt-5 grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="font-semibold text-white">Destinatários</h4>
+              <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs text-white/55">{notificationRecipients.length}</span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {notificationRecipients.length ? notificationRecipients.slice(0, 6).map((item) => (
+                <div key={item.id} className="rounded-lg border border-white/10 bg-black/10 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{item.name || item.phone}</p>
+                      <p className="mt-1 text-xs text-white/45">{item.phone} / {item.role || "cliente"}</p>
+                    </div>
+                    <span className={`rounded-md px-2 py-1 text-xs ${item.enabled ? "bg-emerald-400/10 text-emerald-200" : "bg-white/10 text-white/45"}`}>
+                      {item.enabled ? "ativo" : "inativo"}
+                    </span>
+                  </div>
+                </div>
+              )) : (
+                <EmptyState text="Nenhum destinatário configurado." />
+              )}
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="font-semibold text-white">Auditoria recente</h4>
+              <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs text-white/55">{notificationEvents.length}</span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {notificationEvents.length ? notificationEvents.slice(0, 8).map((item) => (
+                <article key={item.id} className="rounded-lg border border-white/10 bg-black/10 p-3">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-md bg-black/20 px-2.5 py-1 text-xs font-semibold">{statusLabel(item.status)}</span>
+                        <span className="rounded-md bg-black/20 px-2.5 py-1 text-xs">{severityLabel(item.severity || "info")}</span>
+                      </div>
+                      <p className="mt-2 text-sm font-semibold text-white">{item.title || "Notificação operacional"}</p>
+                      <p className="mt-1 text-sm leading-5 text-white/60">
+                        {item.message_preview || item.skip_reason || item.error_message || "Evento registrado."}
+                      </p>
+                    </div>
+                    <span className="text-xs text-white/45">{formatDate(item.created_at)}</span>
+                  </div>
+                </article>
+              )) : (
+                <EmptyState text="Nenhuma notificação registrada ainda." />
+              )}
+            </div>
+          </div>
+        </div>
+      </Panel>
+
       <section className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
         <Panel>
           <h3 className="text-xl font-semibold">
@@ -1712,34 +1893,36 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
               <p className="mt-1 text-sm opacity-80">Conectado em {formatDate(whatsapp.status?.lastConnectionAt)}</p>
             </div>
           )}
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              disabled={whatsapp.busy}
-              onClick={() => void whatsapp.refreshQr()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/15 disabled:opacity-60"
-            >
-              {whatsapp.connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
-              {whatsapp.connecting ? "Gerando QR..." : whatsapp.status?.connected ? "Reconectar" : "Iniciar conexão"}
-            </button>
-            <button
-              type="button"
-              disabled={whatsapp.busy}
-              onClick={() => void whatsapp.refreshQr()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/[0.08] disabled:opacity-60"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Atualizar status
-            </button>
-            <button
-              type="button"
-              disabled={whatsapp.busy}
-              onClick={() => void whatsapp.runAction(eletrofrioApi.whatsappLogout, "Sessão encerrada e diretório limpo.")}
-              className="sm:col-span-2 inline-flex items-center justify-center gap-2 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-400/15 disabled:opacity-60"
-            >
-              Encerrar sessão
-            </button>
-          </div>
+          {canManage ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={whatsapp.busy}
+                onClick={() => void whatsapp.refreshQr()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/15 disabled:opacity-60"
+              >
+                {whatsapp.connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+                {whatsapp.connecting ? "Gerando QR..." : whatsapp.status?.connected ? "Reconectar" : "Iniciar conexão"}
+              </button>
+              <button
+                type="button"
+                disabled={whatsapp.busy}
+                onClick={() => void whatsapp.refreshQr()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/[0.08] disabled:opacity-60"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Atualizar status
+              </button>
+              <button
+                type="button"
+                disabled={whatsapp.busy}
+                onClick={() => void whatsapp.runAction(eletrofrioApi.whatsappLogout, "Sessão encerrada.")}
+                className="sm:col-span-2 inline-flex items-center justify-center gap-2 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-400/15 disabled:opacity-60"
+              >
+                Encerrar sessão
+              </button>
+            </div>
+          ) : null}
         </Panel>
 
         <Panel>
@@ -1868,7 +2051,7 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
           <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[360px] xl:items-end">
               <button
                 type="button"
-                disabled={whatsapp.busy}
+                disabled={whatsapp.busy || !canManage}
                 onClick={sendValidation}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-400/15 disabled:opacity-60"
               >
@@ -1877,17 +2060,12 @@ function WhatsappView({ whatsapp }: { whatsapp: WhatsappController }) {
               </button>
               <button
                 type="button"
-                disabled={whatsapp.busy}
-                onClick={() =>
-                  void whatsapp.runAction(
-                    eletrofrioApi.whatsappProcessInsights,
-                    "Fila de ocorrências processada."
-                  )
-                }
+                disabled={whatsapp.busy || notificationBusy || !canManage}
+                onClick={() => void processNotificationQueue()}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-400/15 disabled:opacity-60"
               >
                 <MessageCircle className="h-4 w-4" />
-                Processar fila
+                Processar notificações
               </button>
           </div>
         </div>
@@ -2739,6 +2917,7 @@ export default function HomePage() {
   const whatsapp = useWhatsappStatus(30000, isAuthenticated);
   const [collectorBusy, setCollectorBusy] = useState(false);
   const [collectorMessage, setCollectorMessage] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isAdmin = authUser?.role === "admin";
 
   useEffect(() => {
@@ -2863,7 +3042,7 @@ export default function HomePage() {
     alertas: <InsightsView insights={insightsState.insights} />,
     operacao: <OperationView />,
     regras: <RulesView canManage={isAdmin} />,
-    whatsapp: <WhatsappView whatsapp={whatsapp} />,
+    whatsapp: <WhatsappView whatsapp={whatsapp} canManage={isAdmin} />,
   } satisfies Record<ViewId, React.ReactNode>;
 
   if (!authChecked) {
@@ -2879,7 +3058,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="industrial-ui min-h-screen text-slate-100">
+    <main className="industrial-ui min-h-screen text-slate-800">
       <div className="flex min-h-screen flex-col">
         <Header
           title={titleByView[activeView]}
@@ -2889,11 +3068,13 @@ export default function HomePage() {
           onLogout={handleLogout}
         />
 
-        <div className="grid flex-1 lg:grid-cols-[64px_minmax(0,1fr)]">
+        <div className={`grid flex-1 ${sidebarCollapsed ? "lg:grid-cols-[76px_minmax(0,1fr)]" : "lg:grid-cols-[260px_minmax(0,1fr)]"}`}>
           <Sidebar
             activeView={activeView}
             onViewChange={changeView}
             role={authUser.role}
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed((value) => !value)}
             totals={{
               units: overviewState.overview?.totals.units,
               devices: overviewState.overview?.totals.devices,

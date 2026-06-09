@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0b1118;
-  --foreground: #eef3f8;
-  --card: #121a24;
-  --card-strong: #172231;
-  --line: #293647;
-  --muted: #9aa7b7;
-  --muted-2: #6f7c8d;
+  --background: #f3f8fc;
+  --foreground: #10213f;
+  --card: #ffffff;
+  --card-strong: #eef6fb;
+  --line: #d6e4ef;
+  --muted: #61748c;
+  --muted-2: #8294a8;
   --danger: #ef4444;
   --warning: #f59e0b;
   --success: #22c55e;
@@ -25,7 +25,7 @@ html {
 body {
   margin: 0;
   background:
-    linear-gradient(180deg, #071019 0%, #0b1118 48%, #081018 100%);
+    linear-gradient(180deg, #f8fcff 0%, #edf6fb 48%, #f4f8fc 100%);
   color: var(--foreground);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -50,10 +50,10 @@ body {
 .industrial-ui {
   min-height: 100vh;
   background:
-    linear-gradient(180deg, rgba(56, 189, 248, 0.055), transparent 34%),
-    linear-gradient(90deg, rgba(34, 197, 94, 0.035), transparent 28%, rgba(14, 165, 233, 0.035)),
-    #0b1118;
-  color: #eef3f8;
+    radial-gradient(circle at 12% 8%, rgba(0, 174, 199, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(232, 244, 250, 0.88) 44%, rgba(247, 250, 252, 0.96)),
+    #f3f8fc;
+  color: #10213f;
 }
 
 @keyframes fade-up {
@@ -86,14 +86,14 @@ body {
 
 .glass-header {
   background:
-    linear-gradient(90deg, rgba(11, 17, 24, 0.92), rgba(17, 26, 37, 0.88)) !important;
+    linear-gradient(90deg, rgba(255, 255, 255, 0.93), rgba(240, 248, 252, 0.9)) !important;
   backdrop-filter: blur(14px) saturate(1.2);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24) !important;
+  box-shadow: 0 12px 34px rgba(16, 45, 78, 0.1) !important;
 }
 
 .login-card {
   animation: fade-up 520ms ease both, pulse-line 4s ease-in-out infinite;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34) !important;
+  box-shadow: 0 24px 80px rgba(18, 74, 112, 0.15) !important;
 }
 
 .industrial-ui .rounded-2xl {
@@ -110,41 +110,47 @@ body {
 }
 
 .industrial-ui .text-white,
-.industrial-ui .text-slate-50 {
-  color: #eef3f8 !important;
+.industrial-ui .text-slate-50,
+.industrial-ui .text-slate-100,
+.industrial-ui .text-slate-200 {
+  color: #10213f !important;
 }
 
 .industrial-ui [class*="text-white/"],
+.industrial-ui .text-slate-300,
 .industrial-ui .text-slate-400 {
-  color: #9aa7b7 !important;
+  color: #61748c !important;
 }
 
 .industrial-ui .text-sky-100,
 .industrial-ui .text-sky-200,
 .industrial-ui .text-sky-300 {
-  color: #7dd3fc !important;
+  color: #075985 !important;
 }
 
 .industrial-ui .text-emerald-100,
 .industrial-ui .text-emerald-200,
 .industrial-ui .text-emerald-300 {
-  color: #86efac !important;
+  color: #047857 !important;
 }
 
 .industrial-ui .text-amber-100,
 .industrial-ui .text-amber-200,
 .industrial-ui .text-amber-300 {
-  color: #facc15 !important;
+  color: #a16207 !important;
 }
 
 .industrial-ui .text-red-100,
 .industrial-ui .text-red-200 {
-  color: #fca5a5 !important;
+  color: #b91c1c !important;
 }
 
-.industrial-ui [class*="bg-white/"],
+.industrial-ui [class*="bg-white/"] {
+  background-color: rgba(255, 255, 255, 0.72) !important;
+}
+
 .industrial-ui [class*="bg-black/"] {
-  background-color: rgba(255, 255, 255, 0.055) !important;
+  background-color: rgba(13, 70, 105, 0.07) !important;
 }
 
 .industrial-ui [class*="from-slate-950"],
@@ -153,11 +159,11 @@ body {
 .industrial-ui [class*="bg-slate-950"],
 .industrial-ui [class*="bg-slate-900/"],
 .industrial-ui [class*="bg-zinc-950"] {
-  background: #111a25 !important;
+  background: #ffffff !important;
 }
 
 .industrial-ui [class*="border-white/"] {
-  border-color: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(124, 153, 178, 0.28) !important;
 }
 
 .industrial-ui [class*="ring-white/"] {
@@ -167,18 +173,18 @@ body {
 .industrial-ui input,
 .industrial-ui textarea,
 .industrial-ui select {
-  background: #0d141d !important;
-  border-color: #2a384a !important;
-  color: #eef3f8 !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-color: #cbddea !important;
+  color: #10213f !important;
 }
 
 .industrial-ui input::placeholder,
 .industrial-ui textarea::placeholder {
-  color: #708094 !important;
+  color: #8396aa !important;
 }
 
 .industrial-ui table tr {
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: 0 1px 0 rgba(124, 153, 178, 0.18);
 }
 
 .industrial-ui button {
@@ -210,8 +216,8 @@ body {
 
 .industrial-ui section.rounded-xl:hover,
 .industrial-ui article.rounded-xl:hover {
-  border-color: rgba(125, 211, 252, 0.2) !important;
-  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.18) !important;
+  border-color: rgba(0, 174, 199, 0.26) !important;
+  box-shadow: 0 14px 42px rgba(18, 74, 112, 0.12) !important;
 }
 
 .industrial-ui [class*="tracking-"] {
@@ -223,12 +229,12 @@ body {
 }
 
 .industrial-ui [class*="shadow-"] {
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16) !important;
+  box-shadow: 0 10px 30px rgba(18, 74, 112, 0.1) !important;
 }
 
 .industrial-ui .shadow-2xl,
 .industrial-ui .shadow-xl {
-  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.22) !important;
+  box-shadow: 0 18px 52px rgba(18, 74, 112, 0.13) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

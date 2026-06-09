@@ -289,6 +289,70 @@ export type WhatsappMessageLog = {
   created_at: string;
 };
 
+export type NotificationRecipient = {
+  id: string;
+  customer_id: string | null;
+  role: string;
+  name: string | null;
+  phone: string;
+  channel: string;
+  enabled: boolean;
+  receive_critical: boolean;
+  receive_warning_recurrent: boolean;
+  cooldown_minutes: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type NotificationEvent = {
+  id: string;
+  customer_id: string | null;
+  anomaly_id: string | null;
+  insight_id: string | null;
+  recipient_id: string | null;
+  phone: string | null;
+  channel: string;
+  severity: string | null;
+  title: string | null;
+  message_preview: string | null;
+  message_full: string | null;
+  status: "skipped" | "dry_run" | "sent" | "failed" | string;
+  skip_reason: string | null;
+  error_message: string | null;
+  created_at: string;
+  sent_at: string | null;
+};
+
+export type NotificationStatus = {
+  schema_applied?: boolean;
+  message?: string;
+  dry_run: boolean;
+  ai_enrichment: boolean;
+  recipients: number;
+  whatsapp: {
+    enabled?: boolean;
+    connected?: boolean;
+    dryRun?: boolean;
+    error?: string;
+  };
+  events_today: Record<string, number>;
+  recent: Record<string, number>;
+};
+
+export type NotificationProcessResult = {
+  schema_applied?: boolean;
+  message?: string;
+  checked: number;
+  sent: number;
+  dry_run: number;
+  skipped: number;
+  failed: number;
+  recipients: number;
+  ai_calls_used?: number;
+  ai_enriched?: number;
+  elapsed_ms: number;
+};
+
 export type CommunicationResponse<T> = {
   schema_applied?: boolean;
   message?: string;

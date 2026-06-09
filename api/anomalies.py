@@ -148,13 +148,10 @@ def _register_anomaly(candidate: dict[str, Any], cooldown_minutes: int) -> tuple
     if not anomaly:
         return None, False, 0
 
-    status, error, sent_count = _send_whatsapp_alert(anomaly)
-    patch: dict[str, Any] = {"whatsapp_status": status, "whatsapp_error": error}
-    if status == "sent":
-        patch["whatsapp_sent_at"] = utc_now_iso()
+    patch: dict[str, Any] = {"whatsapp_status": "pending_notification", "whatsapp_error": None}
     anomaly = patch_anomaly(anomaly["id"], patch) or anomaly
-    logger.info("Anomalia detectada: %s status_whatsapp=%s", candidate["anomaly_key"], status)
-    return anomaly, True, sent_count
+    logger.info("Anomalia detectada: %s aguardando motor de notificações", candidate["anomaly_key"])
+    return anomaly, True, 0
 
 
 def _temperature_candidates(telemetry: list[dict[str, Any]], devices_by_id: dict[Any, dict[str, Any]], units_by_id: dict[Any, dict[str, Any]]) -> list[dict[str, Any]]:

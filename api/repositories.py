@@ -98,6 +98,13 @@ def utc_now_iso() -> str:
 def parse_utc_datetime(value: Any) -> datetime | None:
     if not value:
         return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except ValueError:
+        return None
 
 
 def _to_int(value: Any) -> int | None:
@@ -131,13 +138,6 @@ def scoped_fetch_limit(limit: int, scope: TenantScope | None, multiplier: int = 
     if scope is None or scope.is_admin:
         return limit
     return min(max(limit * multiplier, limit, 500), 5000)
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    except ValueError:
-        return None
 
 
 def create_collector_run(trigger_source: str = "manual") -> str | None:
@@ -162,6 +162,7 @@ def finish_collector_run(
     error_message: str | None = None,
     anomalies_count: int = 0,
     whatsapp_alerts_count: int = 0,
+    extra_metrics: dict[str, Any] | None = None,
 ) -> None:
     if not run_id:
         return
@@ -175,10 +176,30 @@ def finish_collector_run(
         "anomalies_count": anomalies_count,
         "whatsapp_alerts_count": whatsapp_alerts_count,
     }
+    if extra_metrics:
+        payload.update(extra_metrics)
     try:
         supabase.patch("eletrofrio_collector_runs", {"id": run_id}, payload)
     except SupabaseError as exc:
-        if "anomalies_count" not in str(exc) and "whatsapp_alerts_count" not in str(exc):
+        optional_columns = {
+            "anomalies_count",
+            "whatsapp_alerts_count",
+            "duration_seconds",
+            "units_duration",
+            "alarms_duration",
+            "telemetry_duration",
+            "analysis_duration",
+            "notification_duration",
+            "devices_requested",
+            "devices_skipped_cache",
+            "devices_failed",
+            "telemetry_rows_saved",
+            "notifications_checked",
+            "notifications_sent",
+            "notifications_skipped",
+            "notifications_failed",
+        }
+        if not any(column in str(exc) for column in optional_columns):
             raise
         _warn_schema_once(
             "collector_runs_automation_columns",
@@ -188,7 +209,7 @@ def finish_collector_run(
         legacy_payload = {
             key: value
             for key, value in payload.items()
-            if key not in {"anomalies_count", "whatsapp_alerts_count"}
+            if key not in optional_columns
         }
         supabase.patch("eletrofrio_collector_runs", {"id": run_id}, legacy_payload)
 
@@ -208,28 +229,57 @@ def list_devices(scope: TenantScope | None = None) -> list[dict[str, Any]]:
     return filter_rows_by_scope(rows, scope)
 
 
-def list_alarms(limit: int = 200, scope: TenantScope | None = None) -> list[dict[str, Any]]:
+def list_alarms(limit: int = 200, scope: TenantScope | None = None, offset: int = 0) -> list[dict[str, Any]]:
     rows = supabase.select(
         "eletrofrio_alarms",
-        {"select": "*", "order": "created_at.desc", "limit": scoped_fetch_limit(limit, scope)},
+        {"select": "*", "order": "created_at.desc", "limit": scoped_fetch_limit(limit + offset, scope), "offset": max(offset, 0)},
     )
     return filter_rows_by_scope(rows, scope)[:limit]
 
 
-def list_telemetry(limit: int = 500, scope: TenantScope | None = None) -> list[dict[str, Any]]:
-    rows = supabase.select(
-        "eletrofrio_telemetry",
-        {"select": "*", "order": "measured_at.desc", "limit": scoped_fetch_limit(limit, scope)},
-    )
+def list_telemetry(
+    limit: int = 500,
+    scope: TenantScope | None = None,
+    offset: int = 0,
+    dispositivo_id: int | None = None,
+    loja_id: int | None = None,
+) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {
+        "select": "*",
+        "order": "measured_at.desc",
+        "limit": scoped_fetch_limit(limit + offset, scope),
+        "offset": max(offset, 0),
+    }
+    if dispositivo_id is not None:
+        params["dispositivo_id"] = f"eq.{dispositivo_id}"
+    if loja_id is not None:
+        params["loja_id"] = f"eq.{loja_id}"
+    rows = supabase.select("eletrofrio_telemetry", params)
     return filter_rows_by_scope(rows, scope)[:limit]
 
 
-def list_insights(limit: int = 100, scope: TenantScope | None = None) -> list[dict[str, Any]]:
+def list_insights(limit: int = 100, scope: TenantScope | None = None, offset: int = 0) -> list[dict[str, Any]]:
     rows = supabase.select(
         "eletrofrio_ai_insights",
-        {"select": "*", "order": "created_at.desc", "limit": scoped_fetch_limit(limit, scope)},
+        {"select": "*", "order": "created_at.desc", "limit": scoped_fetch_limit(limit + offset, scope), "offset": max(offset, 0)},
     )
     return filter_rows_by_scope(rows, scope)[:limit]
+
+
+def latest_telemetry_timestamps(limit: int = 5000) -> dict[int, datetime]:
+    rows = supabase.select(
+        "eletrofrio_telemetry",
+        {"select": "dispositivo_id,measured_at,created_at", "order": "measured_at.desc", "limit": limit},
+    )
+    result: dict[int, datetime] = {}
+    for row in rows:
+        device_id = _to_int(row.get("dispositivo_id"))
+        if device_id is None or device_id in result:
+            continue
+        parsed = parse_utc_datetime(row.get("measured_at")) or parse_utc_datetime(row.get("created_at"))
+        if parsed:
+            result[device_id] = parsed
+    return result
 
 
 def get_collector_settings() -> dict[str, Any] | None:

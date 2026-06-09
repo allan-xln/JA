@@ -4,8 +4,11 @@ import {
   SlidersHorizontal,
   LayoutDashboard,
   MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
   Snowflake,
 } from "lucide-react";
+import Image from "next/image";
 
 const items = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
@@ -27,21 +30,59 @@ type SidebarProps = {
     devices?: number;
     alarms?: number;
   };
+  collapsed?: boolean;
+  onToggle?: () => void;
 };
 
-export function Sidebar({ activeView, onViewChange, role = "admin", totals }: SidebarProps) {
+export function Sidebar({ activeView, onViewChange, role = "admin", totals, collapsed = false, onToggle }: SidebarProps) {
   void totals;
   const visibleItems = role === "admin" ? items : items.filter((item) => item.id !== "operacao");
+  const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
 
   return (
-    <aside className="fixed inset-x-0 bottom-0 z-40 flex border-t border-white/10 bg-[#0b1118]/95 text-slate-200 shadow-xl lg:static lg:inset-auto lg:z-auto lg:flex-col lg:border-r lg:border-t-0 lg:bg-[#0b1118]/95">
-      <div className="hidden border-b border-white/10 p-3 lg:flex lg:items-center lg:justify-center">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-sm font-bold text-sky-200">
-          EF
+    <aside
+      className={`fixed inset-x-0 bottom-0 z-40 flex border-t border-white/10 bg-white/95 text-slate-700 shadow-xl backdrop-blur-xl lg:static lg:inset-auto lg:z-auto lg:flex-col lg:border-r lg:border-t-0 ${
+        collapsed ? "lg:w-[76px]" : "lg:w-[260px]"
+      }`}
+    >
+      <div className="hidden border-b border-white/10 p-3 lg:block">
+        <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "justify-between"}`}>
+          <div className={collapsed ? "h-10 w-10 overflow-hidden rounded-lg border border-white/10 bg-white p-1.5" : "min-w-0 rounded-lg bg-white px-3 py-2"}>
+            {collapsed ? (
+              <Image
+                src="/eletrofrio-logo.png"
+                alt="Eletrofrio"
+                width={160}
+                height={33}
+                className="h-7 w-[138px] max-w-none object-contain object-left"
+                priority
+              />
+            ) : (
+              <Image
+                src="/eletrofrio-logo.png"
+                alt="Eletrofrio Refrigeração"
+                width={800}
+                height={163}
+                className="h-11 w-full max-w-[190px] object-contain"
+                priority
+              />
+            )}
+          </div>
+          {onToggle ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              title={collapsed ? "Abrir menu" : "Recolher menu"}
+              aria-label={collapsed ? "Abrir menu" : "Recolher menu"}
+              className="hidden h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.6] text-slate-600 transition hover:bg-white lg:inline-flex"
+            >
+              <ToggleIcon className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
       </div>
 
-      <nav className="grid w-full grid-cols-6 gap-1 p-2 lg:flex lg:w-auto lg:flex-col lg:items-center lg:gap-2 lg:overflow-visible">
+      <nav className={`grid w-full grid-cols-6 gap-1 p-2 lg:flex lg:w-auto lg:flex-col lg:gap-2 lg:overflow-visible ${collapsed ? "lg:items-center" : "lg:items-stretch"}`}>
         {visibleItems.map((item) => {
           const Icon = item.icon;
 
@@ -52,13 +93,16 @@ export function Sidebar({ activeView, onViewChange, role = "admin", totals }: Si
               onClick={() => onViewChange(item.id)}
               title={item.label}
               aria-label={item.label}
-              className={`group flex h-12 min-w-0 items-center justify-center rounded-lg border text-center transition hover:scale-[1.03] lg:w-12 ${
+              className={`group flex h-12 min-w-0 items-center gap-3 rounded-lg border px-3 text-center text-sm font-semibold transition hover:scale-[1.01] ${
+                collapsed ? "justify-center lg:w-12" : "justify-center lg:justify-start"
+              } ${
                 activeView === item.id
-                  ? "border-sky-300/35 bg-white/[0.08] text-sky-100"
-                  : "border-transparent text-slate-500 hover:border-white/10 hover:bg-white/[0.055] hover:text-slate-100"
+                  ? "border-sky-300/45 bg-sky-50 text-sky-800 shadow-sm"
+                  : "border-transparent text-slate-500 hover:border-white/10 hover:bg-white/[0.72] hover:text-slate-900"
               }`}
             >
               <Icon className="h-5 w-5" />
+              {!collapsed ? <span className="hidden truncate lg:block">{item.label}</span> : null}
             </button>
           );
         })}

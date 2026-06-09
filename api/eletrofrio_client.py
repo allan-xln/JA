@@ -19,19 +19,34 @@ class EletrofrioClient:
         self.timeout = settings.eletrofrio_timeout_seconds
         self.retry_attempts = max(1, settings.eletrofrio_retry_attempts)
 
-    def _request_once(self, route: str, params: dict[str, Any] | None, payload: dict[str, Any] | None, method: str) -> requests.Response:
+    def _request_once(
+        self,
+        route: str,
+        params: dict[str, Any] | None,
+        payload: dict[str, Any] | None,
+        method: str,
+        timeout: int | None = None,
+    ) -> requests.Response:
         query = {"route": route, **(params or {})}
+        request_timeout = timeout or self.timeout
         if method == "POST":
-            return requests.post(self.base_url, params=query, json=payload, timeout=self.timeout)
-        return requests.get(self.base_url, params=query, timeout=self.timeout)
+            return requests.post(self.base_url, params=query, json=payload, timeout=request_timeout)
+        return requests.get(self.base_url, params=query, timeout=request_timeout)
 
-    def _request(self, route: str, params: dict[str, Any] | None = None, payload: dict[str, Any] | None = None, method: str = "GET") -> Any:
+    def _request(
+        self,
+        route: str,
+        params: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+        method: str = "GET",
+        timeout: int | None = None,
+    ) -> Any:
         method = method.upper()
         last_timeout: requests.Timeout | None = None
 
         for attempt in range(1, self.retry_attempts + 1):
             try:
-                response = self._request_once(route, params, payload, method)
+                response = self._request_once(route, params, payload, method, timeout)
                 break
             except requests.Timeout as exc:
                 last_timeout = exc
@@ -62,14 +77,20 @@ class EletrofrioClient:
             logger.error("Eletrofrio respondeu corpo não JSON em route=%s: %s", route, response.text[:800])
             raise EletrofrioApiError("Resposta não JSON da API Eletrofrio") from exc
 
-    def _get_or_post(self, route: str, params: dict[str, Any] | None = None, payload: dict[str, Any] | None = None) -> Any:
+    def _get_or_post(
+        self,
+        route: str,
+        params: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+        timeout: int | None = None,
+    ) -> Any:
         try:
-            return self._request(route, params=params, payload=payload, method="GET")
+            return self._request(route, params=params, payload=payload, method="GET", timeout=timeout)
         except EletrofrioApiError as first_error:
             if "Timeout na API Eletrofrio" in str(first_error):
                 raise
             logger.warning("GET falhou para route=%s; tentando POST. Erro: %s", route, first_error)
-            return self._request(route, params=params, payload=payload, method="POST")
+            return self._request(route, params=params, payload=payload, method="POST", timeout=timeout)
 
     def fetch_alarms(self) -> Any:
         return self._get_or_post("alarmes")
@@ -77,8 +98,8 @@ class EletrofrioClient:
     def fetch_units(self) -> Any:
         return self._get_or_post("unidades")
 
-    def fetch_telemetry(self, dispositivo_id: int | str) -> Any:
-        return self._get_or_post("telemetria", params={"dispositivoId": dispositivo_id})
+    def fetch_telemetry(self, dispositivo_id: int | str, timeout: int | None = None) -> Any:
+        return self._get_or_post("telemetria", params={"dispositivoId": dispositivo_id}, timeout=timeout)
 
     def open_ticket(self, payload: dict[str, Any]) -> Any:
         return self._request("abrir-chamado", payload=payload, method="POST")

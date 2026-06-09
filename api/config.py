@@ -50,6 +50,7 @@ class Settings:
     whatsapp_alert_enabled: bool = _bool_env("WHATSAPP_ALERT_ENABLED", False)
     whatsapp_alert_to: str = os.getenv("WHATSAPP_ALERT_TO", os.getenv("WHATSAPP_ALLOWED_RECIPIENTS", ""))
     whatsapp_alert_cooldown_minutes: int = int(os.getenv("WHATSAPP_ALERT_COOLDOWN_MINUTES", "60"))
+    whatsapp_dry_run: bool = _bool_env("WHATSAPP_DRY_RUN", True)
     app_public_url: str = os.getenv("APP_PUBLIC_URL", "http://localhost:3000").rstrip("/")
     auto_open_tickets: bool = _bool_env("AUTO_OPEN_TICKETS", False)
     http_timeout_seconds: int = int(os.getenv("HTTP_TIMEOUT_SECONDS", "30"))
@@ -57,6 +58,15 @@ class Settings:
     eletrofrio_retry_attempts: int = int(os.getenv("ELETROFRIO_RETRY_ATTEMPTS", "1"))
     supabase_upsert_batch_size: int = int(os.getenv("SUPABASE_UPSERT_BATCH_SIZE", "500"))
     whatsapp_service_url: str = os.getenv("WHATSAPP_SERVICE_URL", "http://127.0.0.1:8091").rstrip("/")
+    ai_enrich_notifications: bool = _bool_env("AI_ENRICH_NOTIFICATIONS", False)
+    ai_notification_max_per_run: int = int(os.getenv("AI_NOTIFICATION_MAX_PER_RUN", "3"))
+    telemetry_fetch_mode: str = os.getenv("TELEMETRY_FETCH_MODE", "priority").strip().lower()
+    telemetry_max_devices_per_run: int = int(os.getenv("TELEMETRY_MAX_DEVICES_PER_RUN", "80"))
+    telemetry_request_timeout_seconds: int = int(os.getenv("TELEMETRY_REQUEST_TIMEOUT_SECONDS", "15"))
+    telemetry_concurrency: int = int(os.getenv("TELEMETRY_CONCURRENCY", "8"))
+    telemetry_cache_minutes: int = int(os.getenv("TELEMETRY_CACHE_MINUTES", "10"))
+    overview_cache_seconds: int = int(os.getenv("OVERVIEW_CACHE_SECONDS", "30"))
+    admin_cache_seconds: int = int(os.getenv("ADMIN_CACHE_SECONDS", "30"))
 
     @property
     def supabase_enabled(self) -> bool:

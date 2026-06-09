@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+def _clean(value: Any, fallback: str = "-") -> str:
+    text = " ".join(str(value or "").split())
+    return text or fallback
+
+
+def _format_value(value: Any) -> str:
+    if value in (None, ""):
+        return "-"
+    try:
+        return f"{float(value):.1f}°C"
+    except (TypeError, ValueError):
+        return _clean(value)
+
+
+def _expected_range_label(value: Any) -> str:
+    if isinstance(value, dict):
+        min_value = value.get("min")
+        max_value = value.get("max")
+        if min_value is not None and max_value is not None:
+            return f"{_format_value(min_value)} a {_format_value(max_value)}"
+        if min_value is not None:
+            return f"acima de {_format_value(min_value)}"
+        if max_value is not None:
+            return f"até {_format_value(max_value)}"
+    return "faixa operacional esperada"
+
+
+def priority_label(severity: Any) -> str:
+    value = str(severity or "").casefold()
+    if value in {"critical", "critico", "crítico", "high"}:
+        return "Crítica"
+    if value in {"warning", "medium"}:
+        return "Atenção"
+    return "Informativa"
+
+
+def problem_label(item: dict[str, Any]) -> str:
+    text = _clean(item.get("message") or item.get("summary") or item.get("title"), "")
+    lowered = text.casefold()
+    item_type = str(item.get("type") or item.get("insight_type") or "").casefold()
+    if "compressor" in lowered:
+        return "Falha térmica ou alarme de compressor."
+    if "offline" in lowered or "comunica" in lowered:
+        return "Comunicação ou equipamento offline recorrente."
+    if "baixa" in lowered and "temperatura" in lowered:
+        return "Baixa temperatura fora da faixa operacional."
+    if "alta" in lowered and "temperatura" in lowered:
+        return "Alta temperatura fora da faixa operacional."
+    if item_type == "temperature_high":
+        return "Temperatura acima da faixa operacional."
+    if item_type == "temperature_low":
+        return "Temperatura abaixo da faixa operacional."
+    return text or "Ocorrência operacional relevante."
+
+
+def item_title(item: dict[str, Any]) -> str:
+    store = item.get("loja_nome") or (f"Loja {item.get('loja_id')}" if item.get("loja_id") else "Loja não identificada")
+    tag = item.get("tag") or (f"Dispositivo {item.get('dispositivo_id') or item.get('equipment_id')}" if item.get("dispositivo_id") or item.get("equipment_id") else "equipamento monitorado")
+    return f"{store} — {tag}"
+
+
+def store_label(item: dict[str, Any]) -> str:
+    return _clean(item.get("loja_nome") or (f"Loja {item.get('loja_id')}" if item.get("loja_id") else None))
+
+
+def equipment_label(item: dict[str, Any]) -> str:
+    device_id = item.get("dispositivo_id") or item.get("equipment_id")
+    return _clean(item.get("tag") or (f"Dispositivo {device_id}" if device_id else None))
+
+
+def build_single_message(item: dict[str, Any]) -> str:
+    action = item.get("recommended_action") or "validar sensor, porta, carga térmica e condição do sistema de refrigeração."
+    return "\n".join(
+        [
+            "Ocorrência crítica detectada",
+            "",
+            f"Loja: {store_label(item)}",
+            f"Equipamento: {equipment_label(item)}",
+            f"Problema: {problem_label(item)}",
+            f"Leitura: {_format_value(item.get('value'))}",
+            f"Faixa esperada: {_expected_range_label(item.get('expected_range'))}",
+            f"Prioridade: {priority_label(item.get('severity'))}",
+            "",
+            f"Ação inicial: {_clean(action)}",
+            "",
+            "Obs.: causa raiz não confirmada automaticamente.",
+        ]
+    )
+
+
+def build_group_message(items: list[dict[str, Any]], panel_url: str = "") -> str:
+    selected = items[:5]
+    lines = [
+        "Resumo operacional Eletrofrio",
+        "",
+        f"Foram encontradas {len(items)} ocorrências relevantes.",
+        "",
+    ]
+    for index, item in enumerate(selected, 1):
+        lines.extend(
+            [
+                f"{index}. {item_title(item)}",
+                f"{problem_label(item)} Prioridade {priority_label(item.get('severity')).casefold()}.",
+                "",
+            ]
+        )
+    lines.append("Acesse o painel para detalhes.")
+    if panel_url:
+        lines.append(panel_url)
+    return "\n".join(lines).strip()
+
+
+def preview(message: str, limit: int = 220) -> str:
+    text = " ".join(message.split())
+    return text if len(text) <= limit else f"{text[: limit - 3].rstrip()}..."
