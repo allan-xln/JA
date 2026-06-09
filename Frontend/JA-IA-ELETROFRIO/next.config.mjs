@@ -7,14 +7,6 @@ const serverApiUrl = (
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
-  experimental: {
-    turbotrace: {
-      contextDirectory: process.cwd(),
-      logLevel: "error",
-      memoryLimit: 512,
-      processCwd: process.cwd(),
-    },
-  },
   async rewrites() {
     return [
       {

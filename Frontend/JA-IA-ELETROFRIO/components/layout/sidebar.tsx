@@ -8,7 +8,6 @@ import {
   PanelLeftOpen,
   Snowflake,
 } from "lucide-react";
-import Image from "next/image";
 
 const items = [
   { id: "dashboard", label: "Visão geral", icon: LayoutDashboard },
@@ -49,22 +48,16 @@ export function Sidebar({ activeView, onViewChange, role = "admin", totals, coll
         <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "justify-between"}`}>
           <div className={collapsed ? "h-10 w-10 overflow-hidden rounded-lg border border-white/10 bg-white p-1.5" : "min-w-0 rounded-lg bg-white px-3 py-2"}>
             {collapsed ? (
-              <Image
+              <img
                 src="/eletrofrio-logo.png"
                 alt="Eletrofrio"
-                width={160}
-                height={33}
                 className="h-7 w-[138px] max-w-none object-contain object-left"
-                priority
               />
             ) : (
-              <Image
+              <img
                 src="/eletrofrio-logo.png"
                 alt="Eletrofrio Refrigeração"
-                width={800}
-                height={163}
                 className="h-11 w-full max-w-[190px] object-contain"
-                priority
               />
             )}
           </div>

@@ -14,7 +14,6 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import Image from "next/image";
 
 import { Header } from "@/components/layout/header";
 import { Sidebar, type ViewId } from "@/components/layout/sidebar";
@@ -554,13 +553,10 @@ function LoginView({ onLogin }: { onLogin: (user: AuthUser) => void }) {
       <form onSubmit={submit} className="login-card grid w-full max-w-sm gap-4 rounded-2xl border border-white/10 bg-white/[0.86] p-5">
         <div>
           <div className="mb-4 rounded-xl bg-white p-3 shadow-sm">
-            <Image
+            <img
               src="/eletrofrio-logo.png"
               alt="Eletrofrio Refrigeração"
-              width={800}
-              height={163}
               className="h-auto w-full object-contain"
-              priority
             />
           </div>
           <h1 className="text-2xl font-semibold">Eletrofrio</h1>
