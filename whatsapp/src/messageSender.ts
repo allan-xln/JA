@@ -1,3 +1,4 @@
+import type { WASocket } from "@whiskeysockets/baileys";
 import { config } from "./config.js";
 import { logCommunication, logWhatsappMessage } from "./communicationLog.js";
 import { getSocket } from "./whatsappClient.js";
@@ -31,29 +32,88 @@ export function normalizeBrazilianPhone(phone: string) {
   return `${digits}@s.whatsapp.net`;
 }
 
+function unique(values: string[]) {
+  return [...new Set(values)];
+}
+
+function nationalBrazilianDigits(phone: string) {
+  let digits = digitsOnly(phone);
+  if (digits.startsWith(config.defaultCountryCode) && (digits.length === 12 || digits.length === 13)) {
+    digits = digits.slice(config.defaultCountryCode.length);
+  }
+  return digits;
+}
+
+export function brazilianPhoneCandidates(phone: string) {
+  if (phone.includes("@s.whatsapp.net") || phone.includes("@lid")) {
+    return [normalizeBrazilianPhone(phone)];
+  }
+
+  const nationalDigits = nationalBrazilianDigits(phone);
+  const candidates = [normalizeBrazilianPhone(phone)];
+
+  if (nationalDigits.length === 11 && nationalDigits[2] === "9") {
+    candidates.push(`${config.defaultCountryCode}${nationalDigits.slice(0, 2)}${nationalDigits.slice(3)}@s.whatsapp.net`);
+  }
+
+  if (nationalDigits.length === 10) {
+    candidates.push(`${config.defaultCountryCode}${nationalDigits.slice(0, 2)}9${nationalDigits.slice(2)}@s.whatsapp.net`);
+  }
+
+  return unique(candidates);
+}
+
 function recipientAllowed(phone: string) {
   if (!config.allowedRecipients.length) return true;
 
-  const jid = normalizeBrazilianPhone(phone);
-  const digits = jid.split("@", 1)[0];
+  const candidateJids = brazilianPhoneCandidates(phone);
+  const candidateDigits = candidateJids.map((candidate) => candidate.split("@", 1)[0]);
+
   return config.allowedRecipients.some((recipient) => {
     try {
-      const allowedJid = normalizeBrazilianPhone(recipient);
-      return allowedJid === jid || allowedJid.split("@", 1)[0] === digits;
+      const allowedJids = brazilianPhoneCandidates(recipient);
+      const allowedDigits = allowedJids.map((allowedJid) => allowedJid.split("@", 1)[0]);
+
+      return (
+        allowedJids.some((allowedJid) => candidateJids.includes(allowedJid)) ||
+        allowedDigits.some((allowedDigit) => candidateDigits.includes(allowedDigit))
+      );
     } catch {
       return false;
     }
   });
 }
 
+async function resolveRecipientJid(sock: WASocket, phone: string) {
+  const candidateJids = brazilianPhoneCandidates(phone);
+
+  try {
+    const matches = (await sock.onWhatsApp(...candidateJids)) ?? [];
+    const resolved = matches.find((match) => match.exists && match.jid);
+
+    if (resolved?.jid) {
+      if (resolved.jid !== candidateJids[0]) {
+        console.log(`[WA] Destinatário resolvido: ${phone} -> ${resolved.jid} (candidatos: ${candidateJids.join(", ")})`);
+      }
+      return resolved.jid;
+    }
+
+    console.warn(`[WA] Nenhum candidato confirmado para ${phone}; tentando ${candidateJids[0]}.`);
+  } catch (error) {
+    console.warn(`[WA] Falha ao validar destinatário ${phone}; tentando ${candidateJids[0]}.`, error);
+  }
+
+  return candidateJids[0];
+}
+
 export async function sendWhatsAppMessage(phone: string, message: string) {
-  const jid = normalizeBrazilianPhone(phone);
+  const fallbackJid = normalizeBrazilianPhone(phone);
   const text = message.trim();
   if (!text) throw new Error("Mensagem vazia.");
 
   if (!recipientAllowed(phone)) {
     await logWhatsappMessage({
-      phone: jid,
+      phone: fallbackJid,
       direction: "outgoing",
       type: "manual_message",
       message: text,
@@ -64,9 +124,9 @@ export async function sendWhatsAppMessage(phone: string, message: string) {
   }
 
   if (config.dryRun || !config.enabled) {
-    console.log(`[WA][DRY-RUN] Para ${jid}: ${text}`);
+    console.log(`[WA][DRY-RUN] Para ${fallbackJid}: ${text}`);
     await logWhatsappMessage({
-      phone: jid,
+      phone: fallbackJid,
       direction: "outgoing",
       type: "manual_message",
       message: text,
@@ -76,17 +136,18 @@ export async function sendWhatsAppMessage(phone: string, message: string) {
     await logCommunication({
       type: "manual_message",
       direction: "outgoing",
-      phone: jid,
+      phone: fallbackJid,
       message: text,
       status: "dry-run",
       source: "WhatsApp",
     });
-    return { sent: false, dryRun: true, jid };
+    return { sent: false, dryRun: true, jid: fallbackJid };
   }
 
   const sock = getSocket();
   if (!sock) throw new Error("WhatsApp não conectado.");
 
+  const jid = await resolveRecipientJid(sock, phone);
   await sock.sendMessage(jid, { text });
   console.log(`[WA] Mensagem enviada para ${jid}`);
   await logWhatsappMessage({
