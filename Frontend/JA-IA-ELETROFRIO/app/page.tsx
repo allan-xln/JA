@@ -1721,6 +1721,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
   const [notificationEvents, setNotificationEvents] = useState<NotificationEvent[]>([]);
   const [notificationRecipients, setNotificationRecipients] = useState<NotificationRecipient[]>([]);
   const [notificationBusy, setNotificationBusy] = useState(false);
+  const [testingRecipientId, setTestingRecipientId] = useState<string | null>(null);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [recipientForm, setRecipientForm] = useState<RecipientFormState>(emptyRecipientForm);
   const [editingRecipientId, setEditingRecipientId] = useState<string | null>(null);
@@ -1906,6 +1907,32 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
     }
   };
 
+  const testRecipient = async (recipient: NotificationRecipient) => {
+    try {
+      setTestingRecipientId(recipient.id);
+      setNotificationMessage(null);
+      const result = await eletrofrioApi.notificationTest({
+        recipient_id: recipient.id,
+        message: "Você está pronto para receber métricas inteligentes no WhatsApp.",
+        dry_run: false,
+      });
+      const status = typeof result.status === "string" ? result.status : "";
+      const providerId = typeof result.provider_message_id === "string" ? result.provider_message_id : "";
+      setNotificationMessage(
+        status === "sent"
+          ? `Teste enviado para ${recipient.phone}${providerId ? ` (${providerId})` : ""}.`
+          : status === "dry_run"
+            ? `Teste simulado para ${recipient.phone}.`
+            : `Teste processado para ${recipient.phone}. Status: ${status || "sem confirmação"}.`
+      );
+      await loadCommunicationHistory();
+    } catch (err) {
+      setNotificationMessage(err instanceof Error ? err.message : "Não foi possível testar este destinatário.");
+    } finally {
+      setTestingRecipientId(null);
+    }
+  };
+
   const resetRecipientForm = () => {
     setEditingRecipientId(null);
     setRecipientForm(emptyRecipientForm);
@@ -2063,7 +2090,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
           <StatusCard label="Destinatários" value={notificationStatus?.recipients ?? notificationRecipients.length} tone={notificationRecipients.length ? "success" : "muted"} />
           <StatusCard label="Hoje" value={`${notificationCounts.sent || 0} env. / ${notificationCounts.dry_run || 0} dry-run`} tone={(notificationCounts.sent || notificationCounts.dry_run) ? "success" : "muted"} />
         </div>
-        <div className="mt-5 grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="mt-5 grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)] 2xl:grid-cols-[360px_380px_minmax(0,1fr)]">
           <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
             <div className="flex items-center justify-between gap-3">
               <h4 className="font-semibold text-white">Destinatários</h4>
@@ -2161,7 +2188,9 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
               </div>
             ) : null}
             <div className="mt-4 grid gap-3">
-              {notificationRecipients.length ? notificationRecipients.slice(0, 20).map((item) => (
+              {historyLoading && !notificationRecipients.length ? (
+                <LoadingState text="Carregando destinatários do WhatsApp..." />
+              ) : notificationRecipients.length ? notificationRecipients.slice(0, 20).map((item) => (
                 <div key={item.id} className="rounded-lg border border-white/10 bg-black/10 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -2174,6 +2203,15 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
                   </div>
                   {canManage ? (
                     <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={notificationBusy || testingRecipientId === item.id || !item.phone}
+                        onClick={() => void testRecipient(item)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-sky-400/20 bg-sky-400/10 px-2.5 py-1 text-xs font-semibold text-sky-100 disabled:opacity-60"
+                      >
+                        {testingRecipientId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                        Testar
+                      </button>
                       <button
                         type="button"
                         disabled={notificationBusy}
@@ -2207,12 +2245,74 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
             </div>
           </div>
           <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+            <h4 className="font-semibold text-white">
+              {whatsapp.status?.connected ? "Canal operacional conectado" : "Conectar aparelho"}
+            </h4>
+            <p className="mt-2 text-sm text-white/55">
+              {whatsapp.status?.connected
+                ? `Número: ${connectedPhone || whatsapp.status?.phone || "sessão conectada"}`
+                : "Escaneie o QR Code para habilitar o canal operacional."}
+            </p>
+            {!whatsapp.status?.connected ? (
+              <div className="mt-4 flex min-h-[220px] items-center justify-center rounded-xl border border-white/10 bg-[#f8fafc] text-slate-950">
+                {whatsapp.connecting ? (
+                  <div className="px-6 text-center text-sm text-slate-600">
+                    <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" />
+                    Gerando QR Code e abrindo conexão...
+                  </div>
+                ) : whatsapp.qr?.dataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                  <img src={whatsapp.qr.dataUrl} alt="QR Code WhatsApp Eletrofrio" className="h-56 w-56" />
+                ) : (
+                  <div className="px-6 text-center text-sm text-slate-500">Clique em iniciar conexão para gerar o QR Code.</div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-emerald-100">
+                <p className="font-semibold">Sessão ativa</p>
+                <p className="mt-1 text-sm opacity-80">Conectado em {formatDate(whatsapp.status?.lastConnectionAt)}</p>
+              </div>
+            )}
+            {canManage ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={whatsapp.busy}
+                  onClick={() => void whatsapp.refreshQr()}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/15 disabled:opacity-60"
+                >
+                  {whatsapp.connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+                  {whatsapp.connecting ? "Gerando QR..." : whatsapp.status?.connected ? "Reconectar" : "Iniciar conexão"}
+                </button>
+                <button
+                  type="button"
+                  disabled={whatsapp.busy}
+                  onClick={() => void whatsapp.refreshQr()}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/[0.08] disabled:opacity-60"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Atualizar status
+                </button>
+                <button
+                  type="button"
+                  disabled={whatsapp.busy}
+                  onClick={() => void whatsapp.runAction(eletrofrioApi.whatsappLogout, "Sessão encerrada.")}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-400/15 disabled:opacity-60 sm:col-span-2"
+                >
+                  Encerrar sessão
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
             <div className="flex items-center justify-between gap-3">
               <h4 className="font-semibold text-white">Auditoria recente</h4>
               <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs text-white/55">{notificationEvents.length}</span>
             </div>
             <div className="mt-4 grid gap-3">
-              {notificationEvents.length ? notificationEvents.slice(0, 8).map((item) => (
+              {historyLoading && !notificationEvents.length ? (
+                <LoadingState text="Carregando auditoria automática..." />
+              ) : notificationEvents.length ? notificationEvents.slice(0, 8).map((item) => (
                 <article key={item.id} className="rounded-lg border border-white/10 bg-black/10 p-3">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div>
@@ -2236,69 +2336,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
         </div>
       </Panel>
 
-      <section className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <Panel>
-          <h3 className="text-xl font-semibold">
-            {whatsapp.status?.connected ? "Canal operacional conectado" : "Conectar aparelho"}
-          </h3>
-          <p className="mt-2 text-sm text-white/55">
-            {whatsapp.status?.connected
-              ? `Número: ${connectedPhone || whatsapp.status?.phone || "sessão conectada"}`
-              : "Escaneie o QR Code para habilitar o canal operacional."}
-          </p>
-          {!whatsapp.status?.connected ? (
-            <div className="mt-5 flex min-h-[260px] items-center justify-center rounded-xl border border-white/10 bg-[#f8fafc] text-slate-950 sm:min-h-[300px]">
-              {whatsapp.connecting ? (
-                <div className="px-6 text-center text-sm text-slate-600">
-                  <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin" />
-                  Gerando QR Code e abrindo conexão...
-                </div>
-              ) : whatsapp.qr?.dataUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-                <img src={whatsapp.qr.dataUrl} alt="QR Code WhatsApp Eletrofrio" className="h-60 w-60 sm:h-72 sm:w-72" />
-              ) : (
-                <div className="px-6 text-center text-sm text-slate-500">Clique em iniciar conexão para gerar o QR Code.</div>
-              )}
-            </div>
-          ) : (
-            <div className="mt-5 rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-emerald-100">
-              <p className="font-semibold">Sessão ativa</p>
-              <p className="mt-1 text-sm opacity-80">Conectado em {formatDate(whatsapp.status?.lastConnectionAt)}</p>
-            </div>
-          )}
-          {canManage ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                disabled={whatsapp.busy}
-                onClick={() => void whatsapp.refreshQr()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-4 py-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-400/15 disabled:opacity-60"
-              >
-                {whatsapp.connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
-                {whatsapp.connecting ? "Gerando QR..." : whatsapp.status?.connected ? "Reconectar" : "Iniciar conexão"}
-              </button>
-              <button
-                type="button"
-                disabled={whatsapp.busy}
-                onClick={() => void whatsapp.refreshQr()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/[0.08] disabled:opacity-60"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Atualizar status
-              </button>
-              <button
-                type="button"
-                disabled={whatsapp.busy}
-                onClick={() => void whatsapp.runAction(eletrofrioApi.whatsappLogout, "Sessão encerrada.")}
-                className="sm:col-span-2 inline-flex items-center justify-center gap-2 rounded-xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm font-semibold text-red-200 transition hover:bg-red-400/15 disabled:opacity-60"
-              >
-                Encerrar sessão
-              </button>
-            </div>
-          ) : null}
-        </Panel>
-
-        <Panel>
+      <Panel>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h3 className="text-xl font-semibold">Conversas operacionais</h3>
@@ -2324,7 +2362,9 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
             </div>
           </div>
           <div className="mt-5 grid gap-3">
-            {visibleCommunications.length ? visibleCommunications.slice(0, 12).map((item) => (
+            {historyLoading && !visibleCommunications.length ? (
+              <LoadingState text="Carregando conversas operacionais..." />
+            ) : visibleCommunications.length ? visibleCommunications.slice(0, 12).map((item) => (
               <article key={item.id} className="rounded-xl border border-white/10 bg-white/[0.035] p-3 sm:p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -2345,8 +2385,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
               <EmptyState text="Nenhuma comunicação operacional registrada ainda." />
             )}
           </div>
-        </Panel>
-      </section>
+      </Panel>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel>
@@ -2357,7 +2396,9 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
             <span className="rounded-md border border-white/10 bg-white/[0.045] px-3 py-1.5 text-xs text-white/55">{ragHistory.length} registros</span>
           </div>
           <div className="mt-5 grid gap-3">
-            {ragHistory.length ? ragHistory.slice(0, 8).map((item) => (
+            {historyLoading && !ragHistory.length ? (
+              <LoadingState text="Carregando consultas operacionais..." />
+            ) : ragHistory.length ? ragHistory.slice(0, 8).map((item) => (
               <article key={item.id} className="rounded-xl border border-white/10 bg-white/[0.035] p-3 sm:p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -2384,7 +2425,9 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
         <Panel>
           <h3 className="text-xl font-semibold">Timeline operacional</h3>
           <div className="mt-5 grid gap-3">
-            {timeline.length ? timeline.slice(0, 14).map((item) => (
+            {historyLoading && !timeline.length ? (
+              <LoadingState text="Carregando linha do tempo operacional..." />
+            ) : timeline.length ? timeline.slice(0, 14).map((item) => (
               <div key={`${item.timeline_source || "event"}-${item.id}`} className="relative border-l border-white/10 pl-4">
                 <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full bg-sky-300" />
                 <p className="text-xs text-white/40">{formatDate(item.created_at)}</p>
@@ -2666,8 +2709,10 @@ function IntelligentAlertsView({
           </span>
         </div>
 
+        {loading && !rows.length ? <div className="mt-5"><LoadingState text="Carregando histórico automático..." /></div> : null}
+
         <div className="mt-5 grid gap-3 md:hidden">
-          {rows.length ? rows.map((item) => (
+          {loading && !rows.length ? null : rows.length ? rows.map((item) => (
             <article key={`${item.id}-mobile`} className="surface-muted rounded-xl p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -2694,7 +2739,7 @@ function IntelligentAlertsView({
         </div>
 
         <div className="mt-5 hidden overflow-x-auto md:block">
-          {rows.length ? (
+          {loading && !rows.length ? null : rows.length ? (
             <table className="w-full min-w-[1100px] border-separate border-spacing-y-2 text-left text-sm">
               <thead>
                 <tr className="text-xs font-semibold text-slate-500">
