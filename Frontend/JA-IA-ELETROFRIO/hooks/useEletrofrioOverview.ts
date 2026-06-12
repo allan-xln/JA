@@ -39,6 +39,7 @@ export function useEletrofrioOverview(enabled = true, loadDetails = false): Over
       return;
     }
     try {
+      setLoading(true);
       setError(null);
       const [healthData, overviewData] = await Promise.all([
         eletrofrioApi.health(),
@@ -47,9 +48,11 @@ export function useEletrofrioOverview(enabled = true, loadDetails = false): Over
 
       setHealth(healthData);
       setOverview(overviewData);
-      setLoading(false);
 
-      if (!loadDetails) return;
+      if (!loadDetails) {
+        setLoading(false);
+        return;
+      }
 
       const [unitsData, devicesData, alarmsData, telemetryData] = await Promise.all([
         eletrofrioApi.units(),

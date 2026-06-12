@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   BellRing,
-  ChevronDown,
   CheckCircle2,
   Clock3,
   Loader2,
@@ -54,6 +53,7 @@ type WhatsappController = ReturnType<typeof useWhatsappStatus>;
 
 const VIEW_IDS = ["dashboard", "ativos", "alertas", "inteligentes", "operacao", "regras", "whatsapp"] as const satisfies readonly ViewId[];
 const VIEW_STORAGE_KEY = "eletrofrio.activeView";
+const ASSETS_PAGE_SIZE = 40;
 
 const severityTone: Record<string, string> = {
   critical: "border-red-400/30 bg-red-400/10 text-red-100",
@@ -932,14 +932,16 @@ function AssetsView({
   alarms,
   telemetry,
   overviewDevices,
+  loading,
 }: {
   devices: EletrofrioDevice[];
   alarms: EletrofrioAlarm[];
   telemetry: EletrofrioTelemetry[];
   overviewDevices: DeviceMetric[];
+  loading: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [visibleCount, setVisibleCount] = useState(120);
+  const [page, setPage] = useState(1);
   const alarmCountByDevice = useMemo(() => {
     const map = new Map<number, number>();
     alarms.forEach((alarm) => {
@@ -965,15 +967,32 @@ function AssetsView({
     return new Map(overviewDevices.map((item) => [item.dispositivo_id, item]));
   }, [overviewDevices]);
 
-  const filtered = devices.filter((device) => {
-    const text = `${device.tag || ""} ${device.loja_id || ""} ${device.dispositivo_id || ""}`.toLowerCase();
-    return text.includes(query.toLowerCase());
-  });
-  const visibleDevices = filtered.slice(0, visibleCount);
+  const filtered = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    return devices.filter((device) => {
+      const metric = device.dispositivo_id == null ? null : metricsByDevice.get(device.dispositivo_id);
+      const text = [
+        device.tag,
+        device.loja_id,
+        device.dispositivo_id,
+        metric?.loja_nome,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return !search || text.includes(search);
+    });
+  }, [devices, metricsByDevice, query]);
 
-  useEffect(() => {
-    setVisibleCount(120);
-  }, [query]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ASSETS_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * ASSETS_PAGE_SIZE;
+  const visibleDevices = filtered.slice(startIndex, startIndex + ASSETS_PAGE_SIZE);
+  const pageNumbers = useMemo(() => {
+    const pages = new Set<number>([1, 2, 3, currentPage - 1, currentPage, currentPage + 1, totalPages]);
+    return Array.from(pages)
+      .filter((item) => item >= 1 && item <= totalPages)
+      .sort((a, b) => a - b);
+  }, [currentPage, totalPages]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -987,16 +1006,30 @@ function AssetsView({
           <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
             placeholder="Filtrar por loja, tag ou ID"
             className="w-full rounded-xl border border-white/10 bg-white/[0.055] py-3 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-white/35 focus:border-sky-300/40"
           />
         </label>
       </Panel>
 
+      {loading ? <LoadingState text="Carregando ativos, ocorrências e últimas leituras..." /> : null}
+
       <Panel>
+        {!loading ? (
+          <div className="mb-4 flex flex-col gap-2 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              Exibindo {filtered.length ? startIndex + 1 : 0}-{Math.min(startIndex + ASSETS_PAGE_SIZE, filtered.length)} de {filtered.length} ativos
+            </span>
+            <span>Busca aplicada em todos os ativos carregados.</span>
+          </div>
+        ) : null}
+
         <div className="grid gap-3 md:hidden">
-          {visibleDevices.map((device) => {
+          {!loading && visibleDevices.map((device) => {
             const latest = device.dispositivo_id == null ? null : latestTelemetryByDevice.get(device.dispositivo_id);
             const metric = metricsByDevice.get(device.dispositivo_id);
             const alarmCount =
@@ -1022,7 +1055,7 @@ function AssetsView({
               </article>
             );
           })}
-          {!filtered.length ? <EmptyState text="Nenhum dispositivo encontrado para o filtro atual." /> : null}
+          {!loading && !filtered.length ? <EmptyState text="Nenhum dispositivo encontrado para o filtro atual." /> : null}
         </div>
 
         <div className="hidden overflow-x-auto md:block">
@@ -1038,7 +1071,7 @@ function AssetsView({
               </tr>
             </thead>
             <tbody>
-              {visibleDevices.map((device) => {
+              {!loading && visibleDevices.map((device) => {
                 const latest = device.dispositivo_id == null ? null : latestTelemetryByDevice.get(device.dispositivo_id);
                 const metric = metricsByDevice.get(device.dispositivo_id);
                 const alarmCount =
@@ -1058,17 +1091,48 @@ function AssetsView({
               })}
             </tbody>
           </table>
-          {!filtered.length ? <EmptyState text="Nenhum dispositivo encontrado para o filtro atual." /> : null}
+          {!loading && !filtered.length ? <EmptyState text="Nenhum dispositivo encontrado para o filtro atual." /> : null}
         </div>
-        {filtered.length > visibleDevices.length ? (
-          <div className="mt-4 flex justify-center">
+
+        {!loading && totalPages > 1 ? (
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
-              onClick={() => setVisibleCount((count) => count + 120)}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm font-semibold text-white/75 transition hover:bg-white/[0.08]"
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              disabled={currentPage === 1}
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.55] px-3 text-sm font-semibold text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <ChevronDown className="h-4 w-4" />
-              Carregar mais ativos ({visibleDevices.length}/{filtered.length})
+              Anterior
+            </button>
+            {pageNumbers.map((pageNumber, index) => {
+              const previous = pageNumbers[index - 1];
+              const showGap = previous != null && pageNumber - previous > 1;
+              const active = pageNumber === currentPage;
+              return (
+                <div key={pageNumber} className="flex items-center gap-2">
+                  {showGap ? <span className="text-sm text-slate-400">...</span> : null}
+                  <button
+                    type="button"
+                    onClick={() => setPage(pageNumber)}
+                    className={`flex h-10 min-w-10 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition ${
+                      active
+                        ? "border-sky-200 bg-sky-100 text-sky-800"
+                        : "border-white/10 bg-white/[0.55] text-slate-600 hover:bg-white"
+                    }`}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    {pageNumber}
+                  </button>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              disabled={currentPage === totalPages}
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.55] px-3 text-sm font-semibold text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Próxima
             </button>
           </div>
         ) : null}
@@ -1077,7 +1141,7 @@ function AssetsView({
   );
 }
 
-function InsightsView({ insights }: { insights: EletrofrioInsight[] }) {
+function InsightsView({ insights, loading }: { insights: EletrofrioInsight[]; loading: boolean }) {
   const [query, setQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [periodFilter, setPeriodFilter] = useState("all");
@@ -1226,6 +1290,8 @@ function InsightsView({ insights }: { insights: EletrofrioInsight[] }) {
           {summaryError}
         </div>
       ) : null}
+
+      {loading ? <LoadingState text="Carregando ocorrências e prioridades operacionais..." /> : null}
 
       <Panel>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1.2fr)_180px_180px_160px_160px_180px_auto]">
@@ -1392,9 +1458,9 @@ function InsightsView({ insights }: { insights: EletrofrioInsight[] }) {
               </article>
           );
           })
-        ) : (
+        ) : !loading ? (
           <EmptyState text={insights.length ? "Nenhuma ocorrência encontrada com os filtros atuais." : "Nenhuma ocorrência priorizada encontrada."} />
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -3617,9 +3683,10 @@ export default function HomePage() {
         alarms={overviewState.alarms}
         telemetry={overviewState.telemetry}
         overviewDevices={overviewState.overview?.device_metrics || []}
+        loading={overviewState.loading}
       />
     ),
-    alertas: <InsightsView insights={insightsState.insights} />,
+    alertas: <InsightsView insights={insightsState.insights} loading={insightsState.loading} />,
     inteligentes: <IntelligentAlertsView insights={insightsState.insights} whatsapp={whatsapp} />,
     operacao: <OperationView />,
     regras: <RulesView canManage={isAdmin} />,
