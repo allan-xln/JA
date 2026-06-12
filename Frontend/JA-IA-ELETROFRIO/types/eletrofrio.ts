@@ -348,6 +348,7 @@ export type NotificationProcessResult = {
   skipped: number;
   failed: number;
   recipients: number;
+  whatsapp?: NotificationStatus["whatsapp"];
   ai_calls_used?: number;
   ai_enriched?: number;
   elapsed_ms: number;

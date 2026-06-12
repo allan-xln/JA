@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 import requests
 
 from api.auth import DATA_DIR, TenantScope
+from api.communications import log_communication
 from api.config import settings
 from api.database import SupabaseError, supabase
 from api.logger import logger
@@ -20,6 +22,7 @@ from api.repositories import filter_rows_by_scope, list_anomalies, list_insights
 NOTIFICATION_SCHEMA_MESSAGE = (
     "Schema de notificações ainda não aplicado. Execute sql/006_notifications_and_performance.sql no Supabase."
 )
+_logged_notification_schema_warnings: set[str] = set()
 
 AI_NOTIFICATION_SYSTEM_PROMPT = (
     "Você é um assistente operacional de refrigeração da Eletrofrio. "
@@ -37,6 +40,13 @@ def _schema_missing(exc: Exception) -> bool:
         or "pgrst205" in text
         or "schema cache" in text
     )
+
+
+def _warn_schema_once(key: str, exc: Exception) -> None:
+    if key in _logged_notification_schema_warnings:
+        return
+    logger.warning("%s: %s", NOTIFICATION_SCHEMA_MESSAGE, exc)
+    _logged_notification_schema_warnings.add(key)
 
 
 def _hash(parts: list[Any]) -> str:
@@ -151,14 +161,15 @@ def _notification_hash(item: dict[str, Any], recipient: dict[str, Any]) -> str:
     return _hash([item.get("source_kind"), item.get("source_id"), recipient.get("id"), recipient.get("phone"), recipient.get("channel") or "whatsapp"])
 
 
-def _event_exists(notification_hash: str) -> bool:
+def _event_exists(notification_hash: str, include_dry_run: bool = False) -> bool:
     try:
+        status_filter = "in.(sent,dry_run)" if include_dry_run else "eq.sent"
         rows = supabase.select(
             "eletrofrio_notification_events",
             {
                 "select": "id,status",
                 "notification_hash": f"eq.{notification_hash}",
-                "status": "eq.sent",
+                "status": status_filter,
                 "limit": 1,
             },
         )
@@ -169,7 +180,7 @@ def _event_exists(notification_hash: str) -> bool:
         raise
 
 
-def _recipient_in_cooldown(recipient: dict[str, Any]) -> bool:
+def _recipient_in_cooldown(recipient: dict[str, Any], include_dry_run: bool = True) -> bool:
     try:
         cooldown = max(5, int(recipient.get("cooldown_minutes") or 60))
     except (TypeError, ValueError):
@@ -177,7 +188,7 @@ def _recipient_in_cooldown(recipient: dict[str, Any]) -> bool:
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=cooldown)).isoformat()
     params: dict[str, Any] = {
         "select": "id,created_at",
-        "status": "in.(sent,dry_run)",
+        "status": "in.(sent,dry_run)" if include_dry_run else "eq.sent",
         "created_at": f"gte.{cutoff}",
         "limit": 1,
     }
@@ -356,8 +367,18 @@ def update_recipient(recipient_id: str, payload: dict[str, Any]) -> dict[str, An
     return rows[0] if rows else {}
 
 
-def list_events(limit: int = 80, status: str | None = None, scope: TenantScope | None = None) -> dict[str, Any]:
-    params: dict[str, Any] = {"select": "*", "order": "created_at.desc", "limit": min(max(limit, 1), 200)}
+def delete_recipient(recipient_id: str) -> dict[str, Any]:
+    rows = supabase.delete("eletrofrio_notification_recipients", {"id": recipient_id})
+    return rows[0] if rows else {"id": recipient_id, "deleted": True}
+
+
+def list_events(limit: int = 80, status: str | None = None, scope: TenantScope | None = None, offset: int = 0) -> dict[str, Any]:
+    page_limit = min(max(limit, 1), 200)
+    page_offset = max(offset, 0)
+    fetch_limit = min(max(page_limit + page_offset, page_limit), 500) if scope and not scope.is_admin else page_limit
+    params: dict[str, Any] = {"select": "*", "order": "created_at.desc", "limit": fetch_limit}
+    if not scope or scope.is_admin:
+        params["offset"] = page_offset
     if status:
         params["status"] = f"eq.{status}"
     try:
@@ -368,7 +389,20 @@ def list_events(limit: int = 80, status: str | None = None, scope: TenantScope |
         raise
     if scope and not scope.is_admin:
         rows = [row for row in rows if str(row.get("customer_id") or "") == str(scope.customer_id)]
-    return {"schema_applied": True, "items": rows}
+        rows = rows[page_offset : page_offset + page_limit]
+    return {"schema_applied": True, "items": rows[:page_limit]}
+
+
+def _recipient_event_id(recipient: dict[str, Any]) -> str | None:
+    if recipient.get("source") in {"env", "manual"}:
+        return None
+    value = recipient.get("id")
+    if not value:
+        return None
+    try:
+        return str(uuid.UUID(str(value)))
+    except (TypeError, ValueError):
+        return None
 
 
 def _insert_event(item: dict[str, Any], recipient: dict[str, Any] | None, status: str, message: str, skip_reason: str | None = None, error_message: str | None = None, provider_message_id: str | None = None) -> None:
@@ -384,7 +418,7 @@ def _insert_event(item: dict[str, Any], recipient: dict[str, Any] | None, status
         "customer_id": item.get("customer_id"),
         "anomaly_id": item.get("source_id") if item.get("source_kind") == "anomaly" else None,
         "insight_id": item.get("source_id") if item.get("source_kind") == "insight" else None,
-        "recipient_id": recipient.get("id") if recipient.get("source") != "env" else None,
+        "recipient_id": _recipient_event_id(recipient),
         "phone": recipient.get("phone"),
         "channel": recipient.get("channel") or "whatsapp",
         "severity": item.get("severity"),
@@ -403,9 +437,34 @@ def _insert_event(item: dict[str, Any], recipient: dict[str, Any] | None, status
         if "duplicate" in str(exc).lower() or "23505" in str(exc):
             return
         if _schema_missing(exc):
-            logger.warning("%s: %s", NOTIFICATION_SCHEMA_MESSAGE, exc)
+            _warn_schema_once("notification_events_insert", exc)
             return
         logger.warning("Falha ao registrar evento de notificação: %s", exc)
+        return
+
+    if status in {"sent", "dry_run", "failed"}:
+        log_communication(
+            {
+                "type": "operational_alert",
+                "direction": "outgoing",
+                "phone": recipient.get("phone"),
+                "loja_id": item.get("loja_id"),
+                "loja_nome": item.get("loja_nome"),
+                "dispositivo_id": item.get("dispositivo_id") or item.get("equipment_id"),
+                "tag": item.get("tag"),
+                "customer_id": item.get("customer_id"),
+                "message_preview": message,
+                "payload_json": {
+                    "notification_status": status,
+                    "source_kind": item.get("source_kind"),
+                    "source_id": item.get("source_id"),
+                    "skip_reason": skip_reason,
+                    "provider_message_id": provider_message_id,
+                },
+                "status": status,
+                "source": "notificador automático",
+            }
+        )
 
 
 def _whatsapp_status() -> dict[str, Any]:
@@ -453,6 +512,74 @@ def _candidate_items() -> list[dict[str, Any]]:
     return items
 
 
+def _annotate_recurrence(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    store_counts: dict[tuple[str | None, Any], int] = defaultdict(int)
+    device_counts: dict[tuple[str | None, Any], int] = defaultdict(int)
+    recent_items = []
+    for item in items:
+        detected = (
+            _parse_dt(item.get("detected_at"))
+            or _parse_dt(item.get("created_at"))
+            or _parse_dt(item.get("started_at"))
+        )
+        if detected and datetime.now(timezone.utc) - detected <= timedelta(hours=48):
+            recent_items.append(item)
+            if item.get("loja_id") is not None:
+                store_counts[(item.get("customer_id"), item.get("loja_id"))] += 1
+            device_id = item.get("dispositivo_id") or item.get("equipment_id")
+            if device_id is not None:
+                device_counts[(item.get("customer_id"), device_id)] += 1
+
+    for item in recent_items:
+        recurrence = 0
+        if item.get("loja_id") is not None:
+            recurrence = max(recurrence, store_counts[(item.get("customer_id"), item.get("loja_id"))])
+        device_id = item.get("dispositivo_id") or item.get("equipment_id")
+        if device_id is not None:
+            recurrence = max(recurrence, device_counts[(item.get("customer_id"), device_id)])
+        if recurrence > 1:
+            item["recurrence_count"] = max(int(item.get("recurrence_count") or 0), recurrence)
+    return items
+
+
+def send_test_notification(payload: dict[str, Any], scope: TenantScope | None = None) -> dict[str, Any]:
+    recipients = list_recipients(scope).get("items", [])
+    recipient: dict[str, Any] = {"source": "manual", "channel": "whatsapp", "role": "admin"}
+    if payload.get("recipient_id"):
+        recipient = next((item for item in recipients if str(item.get("id")) == str(payload["recipient_id"])), {})
+        if not recipient:
+            raise KeyError("Destinatário não encontrado.")
+
+    phone = payload.get("phone") or recipient.get("phone")
+    if not phone:
+        raise ValueError("Informe phone ou recipient_id para envio de teste.")
+
+    recipient = {**recipient, "phone": phone, "channel": recipient.get("channel") or "whatsapp"}
+    message = str(payload.get("message") or "Teste de notificação operacional Eletrofrio.").strip()
+    item = {
+        "source_kind": "test",
+        "source_id": _hash(["test", phone, datetime.now(timezone.utc).isoformat(timespec="seconds")]),
+        "customer_id": recipient.get("customer_id") if recipient.get("role") != "admin" else None,
+        "severity": "info",
+        "title": "Teste de notificação operacional",
+    }
+    effective_dry_run = settings.whatsapp_dry_run if payload.get("dry_run") is None else bool(payload.get("dry_run"))
+    whatsapp = _whatsapp_status()
+    if not effective_dry_run and (not whatsapp.get("enabled") or not whatsapp.get("connected")):
+        _insert_event(item, recipient, "skipped", message, skip_reason="whatsapp_disconnected")
+        return {"status": "skipped", "skip_reason": "whatsapp_disconnected", "phone": phone, "message_preview": preview(message)}
+
+    status, error, provider_id = ("dry_run", None, None) if effective_dry_run else _send_message(recipient, message)
+    _insert_event(item, recipient, status, message, error_message=error, provider_message_id=provider_id)
+    return {
+        "status": status,
+        "phone": phone,
+        "message_preview": preview(message),
+        "provider_message_id": provider_id,
+        "error_message": error,
+    }
+
+
 def process_notifications(scope: TenantScope | None = None, dry_run: bool | None = None) -> dict[str, Any]:
     started = datetime.now(timezone.utc)
     recipients_result = list_recipients(scope)
@@ -460,9 +587,30 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
     if scope and not scope.is_admin:
         recipients = [row for row in recipients if str(row.get("customer_id") or "") == str(scope.customer_id)]
 
-    items = _candidate_items()
+    items = _annotate_recurrence(_candidate_items())
     if scope and not scope.is_admin:
         items = filter_rows_by_scope(items, scope)
+
+    whatsapp = _whatsapp_status()
+    effective_dry_run = settings.whatsapp_dry_run if dry_run is None else dry_run
+
+    if not recipients_result.get("schema_applied", True):
+        elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        return {
+            "schema_applied": False,
+            "message": recipients_result.get("message") or NOTIFICATION_SCHEMA_MESSAGE,
+            "checked": len(items),
+            "sent": 0,
+            "dry_run": 0,
+            "skipped": len(items),
+            "failed": 0,
+            "recipients": len(recipients),
+            "whatsapp": whatsapp,
+            "ai_enrichment": settings.ai_enrich_notifications,
+            "ai_calls_used": 0,
+            "ai_enriched": 0,
+            "elapsed_ms": elapsed_ms,
+        }
 
     checked = 0
     skipped = 0
@@ -473,9 +621,6 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
     ai_enriched = 0
     selected_by_recipient: dict[str, list[dict[str, Any]]] = defaultdict(list)
     recipient_by_id: dict[str, dict[str, Any]] = {}
-
-    whatsapp = _whatsapp_status()
-    effective_dry_run = settings.whatsapp_dry_run if dry_run is None else dry_run
 
     for item in items:
         checked += 1
@@ -502,7 +647,7 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
             continue
 
         for recipient in matching:
-            if _recipient_in_cooldown(recipient):
+            if _recipient_in_cooldown(recipient, include_dry_run=effective_dry_run):
                 skipped += 1
                 _insert_event(item, recipient, "skipped", build_single_message(item), skip_reason="recipient_cooldown")
                 continue
@@ -515,7 +660,7 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
                 _insert_event(item, recipient, "skipped", build_single_message(item), skip_reason="recipient_warning_disabled")
                 continue
             notification_hash = _notification_hash(item, recipient)
-            if _event_exists(notification_hash):
+            if _event_exists(notification_hash, include_dry_run=effective_dry_run):
                 skipped += 1
                 continue
             recipient_key = str(recipient.get("id") or recipient.get("phone"))
@@ -587,5 +732,6 @@ def notification_status(scope: TenantScope | None = None) -> dict[str, Any]:
         "ai_enrichment": settings.ai_enrich_notifications,
         "events_today": _status_counts(today_rows),
         "recent": _status_counts(rows),
+        "pending": 0,
         "recipients": len(list_recipients(scope).get("items", [])),
     }

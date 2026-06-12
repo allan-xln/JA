@@ -56,7 +56,7 @@ class Settings:
     http_timeout_seconds: int = int(os.getenv("HTTP_TIMEOUT_SECONDS", "30"))
     eletrofrio_timeout_seconds: int = int(os.getenv("ELETROFRIO_TIMEOUT_SECONDS", "20"))
     eletrofrio_retry_attempts: int = int(os.getenv("ELETROFRIO_RETRY_ATTEMPTS", "1"))
-    supabase_upsert_batch_size: int = int(os.getenv("SUPABASE_UPSERT_BATCH_SIZE", "500"))
+    supabase_upsert_batch_size: int = int(os.getenv("SUPABASE_BATCH_SIZE", os.getenv("SUPABASE_UPSERT_BATCH_SIZE", "300")))
     whatsapp_service_url: str = os.getenv("WHATSAPP_SERVICE_URL", "http://127.0.0.1:8091").rstrip("/")
     ai_enrich_notifications: bool = _bool_env("AI_ENRICH_NOTIFICATIONS", False)
     ai_notification_max_per_run: int = int(os.getenv("AI_NOTIFICATION_MAX_PER_RUN", "3"))

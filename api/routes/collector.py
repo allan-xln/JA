@@ -101,12 +101,13 @@ def get_collector_runs(limit: int = Query(default=30, ge=1, le=100), user: AuthU
 @router.get("/anomalies")
 def get_collector_anomalies(
     limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     status: str | None = Query(default=None),
     user: AuthUser = Depends(current_user),
 ):
     require_supabase()
     try:
-        return {"items": list_anomalies(limit, status, user.scope)}
+        return {"items": list_anomalies(limit, status, user.scope, offset)}
     except Exception:
         return {"items": []}
 

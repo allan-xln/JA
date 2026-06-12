@@ -101,13 +101,18 @@ def log_rag_query(
 def list_communications(
     *,
     limit: int = 80,
+    offset: int = 0,
     type_: str | None = None,
     status: str | None = None,
     search: str | None = None,
     scope: TenantScope | None = None,
 ) -> dict[str, Any]:
-    fetch_limit = min(max(limit * 5 if scope and not scope.is_admin else limit, 1), 500)
+    page_limit = min(max(limit, 1), 200)
+    page_offset = max(offset, 0)
+    fetch_limit = min(max((page_limit + page_offset) * 5 if scope and not scope.is_admin else page_limit, 1), 500)
     params: dict[str, Any] = {"select": "*", "order": "created_at.desc", "limit": fetch_limit}
+    if scope is None or scope.is_admin:
+        params["offset"] = page_offset
     if type_:
         params["type"] = f"eq.{type_}"
     if status:
@@ -124,14 +129,26 @@ def list_communications(
             row for row in rows
             if term in " ".join(str(row.get(key) or "") for key in ("phone", "loja_nome", "tag", "message_preview", "type", "status")).lower()
         ]
-    return {"schema_applied": True, "items": filter_rows_by_scope(rows, scope)[: min(max(limit, 1), 200)]}
+    rows = filter_rows_by_scope(rows, scope)
+    if scope and not scope.is_admin:
+        rows = rows[page_offset : page_offset + page_limit]
+    return {"schema_applied": True, "items": rows[:page_limit]}
 
 
-def list_rag_queries(*, limit: int = 50, search: str | None = None, scope: TenantScope | None = None) -> dict[str, Any]:
+def list_rag_queries(*, limit: int = 50, offset: int = 0, search: str | None = None, scope: TenantScope | None = None) -> dict[str, Any]:
+    page_limit = min(max(limit, 1), 200)
+    page_offset = max(offset, 0)
     try:
+        params = {
+            "select": "*",
+            "order": "created_at.desc",
+            "limit": min(max((page_limit + page_offset) * 5 if scope and not scope.is_admin else page_limit, 1), 500),
+        }
+        if scope is None or scope.is_admin:
+            params["offset"] = page_offset
         rows = supabase.select(
             "eletrofrio_rag_queries",
-            {"select": "*", "order": "created_at.desc", "limit": min(max(limit * 5 if scope and not scope.is_admin else limit, 1), 500)},
+            params,
         )
     except SupabaseError as exc:
         if _schema_missing(exc):
@@ -146,11 +163,20 @@ def list_rag_queries(*, limit: int = 50, search: str | None = None, scope: Tenan
             if str(row.get("customer_id") or "") == str(scope.customer_id)
             or any(row_in_scope(source, scope) for source in (row.get("sources_json") or []) if isinstance(source, dict))
         ]
-    return {"schema_applied": True, "items": rows[: min(max(limit, 1), 200)]}
+        rows = rows[page_offset : page_offset + page_limit]
+    return {"schema_applied": True, "items": rows[:page_limit]}
 
 
-def list_whatsapp_messages(*, limit: int = 80, status: str | None = None, type_: str | None = None, scope: TenantScope | None = None) -> dict[str, Any]:
-    params: dict[str, Any] = {"select": "*", "order": "created_at.desc", "limit": min(max(limit * 5 if scope and not scope.is_admin else limit, 1), 500)}
+def list_whatsapp_messages(*, limit: int = 80, offset: int = 0, status: str | None = None, type_: str | None = None, scope: TenantScope | None = None) -> dict[str, Any]:
+    page_limit = min(max(limit, 1), 200)
+    page_offset = max(offset, 0)
+    params: dict[str, Any] = {
+        "select": "*",
+        "order": "created_at.desc",
+        "limit": min(max((page_limit + page_offset) * 5 if scope and not scope.is_admin else page_limit, 1), 500),
+    }
+    if scope is None or scope.is_admin:
+        params["offset"] = page_offset
     if status:
         params["delivery_status"] = f"eq.{status}"
     if type_:
@@ -163,7 +189,8 @@ def list_whatsapp_messages(*, limit: int = 80, status: str | None = None, type_:
         raise
     if scope and not scope.is_admin:
         rows = [row for row in rows if str(row.get("customer_id") or "") == str(scope.customer_id) or row_in_scope(row, scope)]
-    return {"schema_applied": True, "items": rows[: min(max(limit, 1), 200)]}
+        rows = rows[page_offset : page_offset + page_limit]
+    return {"schema_applied": True, "items": rows[:page_limit]}
 
 
 def communication_timeline(limit: int = 80, scope: TenantScope | None = None) -> dict[str, Any]:

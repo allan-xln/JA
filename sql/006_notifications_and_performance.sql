@@ -114,6 +114,7 @@ create index if not exists idx_eletrofrio_notification_events_anomaly_id on publ
 create index if not exists idx_eletrofrio_notification_events_insight_id on public.eletrofrio_notification_events(insight_id);
 create index if not exists idx_eletrofrio_notification_events_status on public.eletrofrio_notification_events(status);
 create index if not exists idx_eletrofrio_notification_events_created_at on public.eletrofrio_notification_events(created_at desc);
+create index if not exists idx_eletrofrio_notification_events_phone_created_at on public.eletrofrio_notification_events(phone, created_at desc);
 
 create index if not exists idx_eletrofrio_alarms_loja_created_at on public.eletrofrio_alarms(loja_id, created_at desc);
 create index if not exists idx_eletrofrio_alarms_dispositivo_created_at on public.eletrofrio_alarms(dispositivo_id, created_at desc);
@@ -125,6 +126,9 @@ create index if not exists idx_eletrofrio_ai_insights_dispositivo_created_at on 
 create index if not exists idx_eletrofrio_ai_insights_severity_created_at on public.eletrofrio_ai_insights(severity, created_at desc);
 create index if not exists idx_eletrofrio_anomalies_status_created_at on public.eletrofrio_anomalies(status, created_at desc);
 create index if not exists idx_eletrofrio_anomalies_severity_created_at on public.eletrofrio_anomalies(severity, created_at desc);
+create index if not exists idx_eletrofrio_anomalies_loja_created_at on public.eletrofrio_anomalies(loja_id, created_at desc);
+create index if not exists idx_eletrofrio_anomalies_dispositivo_id_created_at on public.eletrofrio_anomalies(dispositivo_id, created_at desc);
+create index if not exists idx_eletrofrio_anomalies_dispositivo_created_at on public.eletrofrio_anomalies(equipment_id, created_at desc);
 
 drop trigger if exists trg_eletrofrio_notification_recipients_updated_at on public.eletrofrio_notification_recipients;
 create trigger trg_eletrofrio_notification_recipients_updated_at

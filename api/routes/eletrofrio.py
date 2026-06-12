@@ -20,10 +20,12 @@ from api.config import settings
 from api.database import supabase
 from api.notifications.auto_notifier import (
     create_recipient,
+    delete_recipient,
     list_events,
     list_recipients,
     notification_status,
     process_notifications,
+    send_test_notification,
     update_recipient,
 )
 from api.repositories import list_alarms, list_devices, list_insights, list_telemetry, list_units
@@ -109,6 +111,10 @@ class NotificationTestPayload(BaseModel):
     dry_run: bool = True
 
 
+class NotificationProcessPayload(BaseModel):
+    dry_run: bool | None = None
+
+
 def handle_assistant_question(payload: AssistantQueryPayload, user: AuthUser):
     require_supabase()
     question = payload.question.strip()
@@ -167,10 +173,10 @@ def eletrofrio_overview(user: AuthUser = Depends(current_user)):
 
     units = list_units(user.scope)
     devices = list_devices(user.scope)
-    alarms = list_alarms(200, user.scope)
-    telemetry_limit = 500 if user.scope.is_admin else 800
+    alarms = list_alarms(160, user.scope)
+    telemetry_limit = 180 if user.scope.is_admin else 240
     telemetry = list_telemetry(telemetry_limit, user.scope)
-    insights = list_insights(20, user.scope)
+    insights = list_insights(10, user.scope)
     metrics = build_metrics(units, devices, alarms, telemetry)
     metrics["totals"]["insights"] = len(insights)
     metrics["latest_insights"] = insights[:5]
@@ -263,8 +269,8 @@ def eletrofrio_rules_evaluate(user: AuthUser = Depends(require_admin)):
     require_supabase()
     units = list_units()
     devices = list_devices()
-    alarms = list_alarms(300)
-    telemetry = list_telemetry(800)
+    alarms = list_alarms(200)
+    telemetry = list_telemetry(300)
     return evaluate_recent_operation(units, devices, alarms, telemetry)
 
 
@@ -329,9 +335,9 @@ def eletrofrio_assistant_suggestions():
 
 
 @router.get("/communications")
-def eletrofrio_communications(limit: int = 50, type: str | None = None, status: str | None = None, search: str | None = None, user: AuthUser = Depends(current_user)):
+def eletrofrio_communications(limit: int = 50, offset: int = 0, type: str | None = None, status: str | None = None, search: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_communications(limit=min(max(limit, 1), 200), type_=type, status=status, search=search, scope=user.scope)
+    return list_communications(limit=min(max(limit, 1), 200), offset=max(offset, 0), type_=type, status=status, search=search, scope=user.scope)
 
 
 @router.get("/communications/timeline")
@@ -341,15 +347,15 @@ def eletrofrio_communications_timeline(limit: int = 50, user: AuthUser = Depends
 
 
 @router.get("/rag/history")
-def eletrofrio_rag_history(limit: int = 50, search: str | None = None, user: AuthUser = Depends(current_user)):
+def eletrofrio_rag_history(limit: int = 50, offset: int = 0, search: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_rag_queries(limit=min(max(limit, 1), 200), search=search, scope=user.scope)
+    return list_rag_queries(limit=min(max(limit, 1), 200), offset=max(offset, 0), search=search, scope=user.scope)
 
 
 @router.get("/whatsapp/messages")
-def eletrofrio_whatsapp_messages(limit: int = 50, status: str | None = None, type: str | None = None, user: AuthUser = Depends(current_user)):
+def eletrofrio_whatsapp_messages(limit: int = 50, offset: int = 0, status: str | None = None, type: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_whatsapp_messages(limit=min(max(limit, 1), 200), status=status, type_=type, scope=user.scope)
+    return list_whatsapp_messages(limit=min(max(limit, 1), 200), offset=max(offset, 0), status=status, type_=type, scope=user.scope)
 
 
 @router.get("/notifications/status")
@@ -359,15 +365,15 @@ def eletrofrio_notifications_status(user: AuthUser = Depends(current_user)):
 
 
 @router.post("/notifications/process")
-def eletrofrio_notifications_process(user: AuthUser = Depends(require_admin)):
+def eletrofrio_notifications_process(payload: NotificationProcessPayload | None = None, user: AuthUser = Depends(require_admin)):
     require_supabase()
-    return process_notifications(user.scope)
+    return process_notifications(user.scope, dry_run=payload.dry_run if payload else None)
 
 
 @router.get("/notifications/events")
-def eletrofrio_notifications_events(limit: int = 80, status: str | None = None, user: AuthUser = Depends(current_user)):
+def eletrofrio_notifications_events(limit: int = 80, offset: int = 0, status: str | None = None, user: AuthUser = Depends(current_user)):
     require_supabase()
-    return list_events(limit=min(max(limit, 1), 200), status=status, scope=user.scope)
+    return list_events(limit=min(max(limit, 1), 200), offset=max(offset, 0), status=status, scope=user.scope)
 
 
 @router.get("/notifications/recipients")
@@ -391,25 +397,21 @@ def eletrofrio_notifications_recipients_update(recipient_id: str, payload: Notif
     return update_recipient(recipient_id, data)
 
 
+@router.delete("/notifications/recipients/{recipient_id}")
+def eletrofrio_notifications_recipients_delete(recipient_id: str, user: AuthUser = Depends(require_admin)):
+    require_supabase()
+    return delete_recipient(recipient_id)
+
+
 @router.post("/notifications/test")
 def eletrofrio_notifications_test(payload: NotificationTestPayload, user: AuthUser = Depends(require_admin)):
     require_supabase()
-    phone = payload.phone
-    if payload.recipient_id:
-        recipients = list_recipients(user.scope).get("items", [])
-        recipient = next((item for item in recipients if str(item.get("id")) == str(payload.recipient_id)), None)
-        if not recipient:
-            raise HTTPException(status_code=404, detail="Destinatário não encontrado.")
-        phone = recipient.get("phone") or phone
-    if not phone:
-        raise HTTPException(status_code=400, detail="Informe phone ou recipient_id para envio de teste.")
-    if payload.dry_run:
-        return {
-            "status": "dry_run",
-            "phone": phone,
-            "message_preview": payload.message[:180],
-        }
-    return whatsapp_request("POST", "/send-test", {"phone": phone, "message": payload.message})
+    try:
+        return send_test_notification(payload.dict(), user.scope)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/assistant/ask")

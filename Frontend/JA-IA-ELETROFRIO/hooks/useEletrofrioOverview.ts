@@ -23,7 +23,7 @@ type OverviewState = {
   refresh: () => Promise<void>;
 };
 
-export function useEletrofrioOverview(enabled = true): OverviewState {
+export function useEletrofrioOverview(enabled = true, loadDetails = false): OverviewState {
   const [health, setHealth] = useState<OverviewState["health"]>(null);
   const [overview, setOverview] = useState<EletrofrioOverview | null>(null);
   const [units, setUnits] = useState<EletrofrioUnit[]>([]);
@@ -49,11 +49,13 @@ export function useEletrofrioOverview(enabled = true): OverviewState {
       setOverview(overviewData);
       setLoading(false);
 
+      if (!loadDetails) return;
+
       const [unitsData, devicesData, alarmsData, telemetryData] = await Promise.all([
         eletrofrioApi.units(),
         eletrofrioApi.devices(),
-        eletrofrioApi.alarms(120),
-        eletrofrioApi.telemetry(120),
+        eletrofrioApi.alarms(80),
+        eletrofrioApi.telemetry(80),
       ]);
 
       setUnits(unitsData.items || []);
@@ -65,7 +67,7 @@ export function useEletrofrioOverview(enabled = true): OverviewState {
     } finally {
       setLoading(false);
     }
-  }, [enabled]);
+  }, [enabled, loadDetails]);
 
   useEffect(() => {
     if (!enabled) {

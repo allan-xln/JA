@@ -264,7 +264,7 @@ def _default_relevance(source_type: str, row: dict[str, Any]) -> str:
     if source_type == "alarm":
         severity = row.get("severity") or row.get("criticidade") or row.get("alarm_type")
         if severity:
-            return f"Alarme recente com criticidade {severity}."
+            return f"Alarme recente com prioridade {_priority_label(severity)}."
         return "Alarme recente relacionado ao diagnóstico."
     if source_type == "telemetry":
         return "Leitura de telemetria usada para verificar evidência operacional."
@@ -301,6 +301,19 @@ def _alarm_description(row: dict[str, Any]) -> str:
         or raw.get("grupoNm")
         or "alarme operacional"
     )
+
+
+def _priority_label(value: Any) -> str:
+    normalized = _norm(value).strip()
+    if normalized in {"critical", "critico", "c"}:
+        return "crítica"
+    if normalized in {"high", "alta", "a"}:
+        return "alta prioridade"
+    if normalized in {"warning", "medium", "media", "m"}:
+        return "atenção operacional"
+    if normalized in {"low", "baixa", "b"}:
+        return "monitoramento"
+    return "informativa"
 
 
 def _confidence_details(confidence: float, sources: list[dict[str, Any]], warnings: list[str], matched: bool) -> tuple[str, str]:
@@ -565,10 +578,10 @@ def retrieve_operational_context(question: str, intent: str, scope: TenantScope 
 
     units = capture("lojas", lambda: list_units(scope))
     devices = capture("dispositivos", lambda: list_devices(scope))
-    alarms = capture("alarmes", lambda: list_alarms(300, scope))
-    telemetry = capture("telemetria", lambda: list_telemetry(800, scope))
-    insights = capture("insights", lambda: list_insights(150, scope))
-    anomalies = capture("anomalias", lambda: list_anomalies(100, scope=scope))
+    alarms = capture("alarmes", lambda: list_alarms(180, scope))
+    telemetry = capture("telemetria", lambda: list_telemetry(240, scope))
+    insights = capture("insights", lambda: list_insights(80, scope))
+    anomalies = capture("anomalias", lambda: list_anomalies(80, scope=scope))
     runs = capture("histórico de coletas", lambda: list_collector_runs(8))
     metrics = build_metrics(units, devices, alarms, telemetry)
     store, store_alternatives = _find_store(question, units)

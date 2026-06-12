@@ -241,7 +241,8 @@ def run_collector_once(trigger_source: str = "manual") -> dict[str, Any]:
         recent_units = list_units()
         recent_devices = list_devices()
         recent_alarms = list_alarms(300)
-        recent_telemetry = list_telemetry(600)
+        recent_telemetry_limit = min(600, max(200, settings.telemetry_max_devices_per_run * 4))
+        recent_telemetry = list_telemetry(recent_telemetry_limit)
         insights = generate_insights(recent_units, recent_devices, recent_alarms, recent_telemetry)
         saved_insights = insert_insights(insights[:50]) if insights else []
 

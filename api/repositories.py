@@ -73,7 +73,8 @@ def upsert_telemetry(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return []
 
     batch_size = max(50, settings.supabase_upsert_batch_size)
-    for start in range(0, len(clean), batch_size):
+    total_batches = (len(clean) + batch_size - 1) // batch_size
+    for batch_index, start in enumerate(range(0, len(clean), batch_size), 1):
         batch = clean[start : start + batch_size]
         supabase.upsert(
             "eletrofrio_telemetry",
@@ -81,7 +82,8 @@ def upsert_telemetry(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "external_hash",
             return_representation=False,
         )
-        logger.info(
+        log_method = logger.info if batch_index == 1 or batch_index == total_batches or batch_index % 10 == 0 else logger.debug
+        log_method(
             "Telemetria persistida em lote: %s-%s de %s",
             start + 1,
             min(start + len(batch), len(clean)),
@@ -432,12 +434,20 @@ def patch_anomaly(anomaly_id: str, data: dict[str, Any]) -> dict[str, Any] | Non
     return rows[0] if rows else None
 
 
-def list_anomalies(limit: int = 100, status: str | None = None, scope: TenantScope | None = None) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"select": "*", "order": "detected_at.desc", "limit": scoped_fetch_limit(limit, scope)}
+def list_anomalies(limit: int = 100, status: str | None = None, scope: TenantScope | None = None, offset: int = 0) -> list[dict[str, Any]]:
+    page_limit = min(max(limit, 1), 200)
+    page_offset = max(offset, 0)
+    fetch_limit = scoped_fetch_limit(page_limit + page_offset, scope)
+    params: dict[str, Any] = {"select": "*", "order": "detected_at.desc", "limit": fetch_limit}
+    if scope is None or scope.is_admin:
+        params["offset"] = page_offset
     if status:
         params["status"] = f"eq.{status}"
     try:
-        return filter_rows_by_scope(supabase.select("eletrofrio_anomalies", params), scope)[:limit]
+        rows = filter_rows_by_scope(supabase.select("eletrofrio_anomalies", params), scope)
+        if scope and not scope.is_admin:
+            rows = rows[page_offset : page_offset + page_limit]
+        return rows[:page_limit]
     except SupabaseError as exc:
         _warn_schema_once(
             "anomalies_unavailable",

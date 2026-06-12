@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  BellRing,
+  ChevronDown,
+  CheckCircle2,
+  Clock3,
   Loader2,
   MessageCircle,
   Play,
@@ -13,6 +17,7 @@ import {
   Send,
   ShieldCheck,
   Trash2,
+  XCircle,
 } from "lucide-react";
 
 import { Header } from "@/components/layout/header";
@@ -47,7 +52,7 @@ import type {
 
 type WhatsappController = ReturnType<typeof useWhatsappStatus>;
 
-const VIEW_IDS = ["dashboard", "ativos", "alertas", "operacao", "regras", "whatsapp"] as const satisfies readonly ViewId[];
+const VIEW_IDS = ["dashboard", "ativos", "alertas", "inteligentes", "operacao", "regras", "whatsapp"] as const satisfies readonly ViewId[];
 const VIEW_STORAGE_KEY = "eletrofrio.activeView";
 
 const severityTone: Record<string, string> = {
@@ -98,12 +103,12 @@ function confidenceTone(label?: string) {
   return "border-sky-400/25 bg-sky-400/[0.09] text-sky-100";
 }
 
-function severityLabel(value: string) {
-  if (value === "critical") return "Crítico";
-  if (value === "high") return "Alta";
-  if (value === "medium") return "Média";
-  if (value === "low") return "Baixa";
-  if (value === "warning") return "Atenção";
+function severityLabel(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["critical", "critico", "crítico", "c"].includes(normalized)) return "Crítica";
+  if (["high", "alta", "a"].includes(normalized)) return "Alta prioridade";
+  if (["medium", "media", "média", "warning", "m"].includes(normalized)) return "Atenção";
+  if (["low", "baixa", "b"].includes(normalized)) return "Monitoramento";
   return "Informativo";
 }
 
@@ -112,6 +117,7 @@ const ALARM_PRIORITY_BUCKETS = [
     action: "Atender agora",
     label: "Risco alto",
     helper: "Pode impactar produto, temperatura segura ou operação.",
+    sourceLabel: "Origem: alarmes críticos ou de alta prioridade.",
     codes: ["A", "C"],
     includeUnknown: false,
     bar: "bg-red-300",
@@ -120,6 +126,7 @@ const ALARM_PRIORITY_BUCKETS = [
     action: "Validar hoje",
     label: "Requer atenção",
     helper: "Precisa de conferência operacional no mesmo turno.",
+    sourceLabel: "Origem: alarmes que exigem validação no turno.",
     codes: ["M"],
     includeUnknown: false,
     bar: "bg-amber-300",
@@ -128,6 +135,7 @@ const ALARM_PRIORITY_BUCKETS = [
     action: "Acompanhar",
     label: "Monitoramento",
     helper: "Observar recorrência antes de acionar manutenção.",
+    sourceLabel: "Origem: alarmes para acompanhamento operacional.",
     codes: ["B"],
     includeUnknown: false,
     bar: "bg-sky-300",
@@ -136,6 +144,7 @@ const ALARM_PRIORITY_BUCKETS = [
     action: "Registrar",
     label: "Informativo",
     helper: "Sem ação imediata, mas útil para histórico.",
+    sourceLabel: "Origem: registros informativos ou sem prioridade explícita.",
     codes: ["I"],
     includeUnknown: true,
     bar: "bg-slate-300",
@@ -216,8 +225,8 @@ function operationalPriorityView(value: number | null) {
       helper: "Ainda não há dados suficientes para ordenar essa ocorrência.",
       scoreText: "-",
       percent: 0,
-      tone: "border-white/10 bg-black/15 text-white/65",
-      bar: "bg-white/30",
+      tone: "border-slate-200 bg-slate-100 text-slate-600",
+      bar: "bg-slate-300",
     };
   }
 
@@ -441,6 +450,42 @@ function phoneFromWhatsappJid(value?: string | null) {
   return value.split("@", 1)[0].split(":", 1)[0].replace(/\D/g, "");
 }
 
+type RecipientFormState = {
+  name: string;
+  phone: string;
+  role: string;
+  customer_id: string;
+  enabled: boolean;
+  receive_critical: boolean;
+  receive_warning_recurrent: boolean;
+  cooldown_minutes: number;
+};
+
+const emptyRecipientForm: RecipientFormState = {
+  name: "",
+  phone: "",
+  role: "client",
+  customer_id: "",
+  enabled: true,
+  receive_critical: true,
+  receive_warning_recurrent: true,
+  cooldown_minutes: 60,
+};
+
+function recipientPayload(form: RecipientFormState) {
+  return {
+    name: form.name.trim() || null,
+    phone: form.phone.trim(),
+    role: form.role || "client",
+    customer_id: form.customer_id.trim() || null,
+    enabled: form.enabled,
+    receive_critical: form.receive_critical,
+    receive_warning_recurrent: form.receive_warning_recurrent,
+    cooldown_minutes: Math.max(5, Number(form.cooldown_minutes) || 60),
+    channel: "whatsapp",
+  };
+}
+
 function minutesUntil(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -503,7 +548,7 @@ function Panel({
 }) {
   return (
     <section
-      className={`rounded-xl border border-white/10 bg-white/[0.82] p-3 shadow-sm sm:p-4 ${className}`}
+      className={`panel-surface rounded-xl border border-white/10 bg-white/[0.82] p-3 shadow-sm sm:p-4 ${className}`}
     >
       {children}
     </section>
@@ -553,6 +598,7 @@ function LoginView({ onLogin }: { onLogin: (user: AuthUser) => void }) {
       <form onSubmit={submit} className="login-card grid w-full max-w-sm gap-4 rounded-2xl border border-white/10 bg-white/[0.86] p-5">
         <div>
           <div className="mb-4 rounded-xl bg-white p-3 shadow-sm">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/eletrofrio-logo.png"
               alt="Eletrofrio Refrigeração"
@@ -633,17 +679,54 @@ function MetricCard({
 
 function LoadingState({ text }: { text: string }) {
   return (
-    <div className="grid gap-4 md:grid-cols-3">
-      {[0, 1, 2].map((item) => (
-        <div
-          key={item}
-          className="h-28 animate-pulse rounded-xl border border-white/10 bg-white/[0.055]"
-        />
-      ))}
-      <div className="rounded-xl border border-white/10 bg-white/[0.055] p-5 text-sm text-slate-400 md:col-span-3">
-        {text}
+    <div className="loading-shell rounded-xl border border-white/10 bg-white/[0.82] p-4 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-slate-700">Preparando visão operacional</p>
+          <p className="mt-1 text-sm text-slate-500">{text}</p>
+        </div>
+        <div className="flex items-center gap-1.5" aria-hidden="true">
+          <span className="loading-step-dot" />
+          <span className="loading-step-dot" />
+          <span className="loading-step-dot" />
+        </div>
+      </div>
+      <div className="mt-4 loading-meter" />
+      <div className="loading-signal-grid mt-4" aria-hidden="true">
+        {[0, 1, 2, 3, 4].map((item) => (
+          <span key={item} />
+        ))}
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {[0, 1, 2].map((item) => (
+          <div key={item} className="skeleton-card h-28 rounded-xl border border-white/10 p-4">
+            <span className="skeleton-line w-20" />
+            <span className="skeleton-line mt-6 h-6 w-24" />
+            <span className="skeleton-line mt-4 w-32" />
+          </div>
+        ))}
       </div>
     </div>
+  );
+}
+
+function LoadingSplash({ text }: { text: string }) {
+  return (
+    <main className="industrial-ui grid min-h-screen place-items-center px-4 text-slate-800">
+      <div className="loading-shell w-full max-w-sm rounded-xl border border-white/10 bg-white/[0.86] p-5 text-center shadow-xl">
+        <div className="loading-brand-mark mx-auto flex h-12 w-12 items-center justify-center rounded-lg border border-sky-100 bg-white text-sky-700 shadow-sm">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </div>
+        <p className="mt-4 text-sm font-semibold text-slate-800">Carregando ambiente</p>
+        <p className="mt-1 text-sm text-slate-500">{text}</p>
+        <div className="mt-5 loading-meter" />
+        <div className="loading-signal-grid mt-4" aria-hidden="true">
+          {[0, 1, 2, 3, 4].map((item) => (
+            <span key={item} />
+          ))}
+        </div>
+      </div>
+    </main>
   );
 }
 
@@ -745,9 +828,7 @@ function DashboardView({
                           <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-white/65">{item.label}</span>
                         </div>
                         <p className="mt-0.5 text-xs text-white/50">{item.helper}</p>
-                        <p className="mt-0.5 text-xs text-white/35">
-                          Base técnica: classificação original {item.sourceCodes.length ? item.sourceCodes.join(", ") : "-"}
-                        </p>
+                        <p className="mt-0.5 text-xs text-white/35">{item.sourceLabel}</p>
                       </div>
                       <span className="shrink-0 text-base font-semibold text-white">{item.count} alarmes</span>
                     </div>
@@ -858,6 +939,7 @@ function AssetsView({
   overviewDevices: DeviceMetric[];
 }) {
   const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(120);
   const alarmCountByDevice = useMemo(() => {
     const map = new Map<number, number>();
     alarms.forEach((alarm) => {
@@ -887,6 +969,11 @@ function AssetsView({
     const text = `${device.tag || ""} ${device.loja_id || ""} ${device.dispositivo_id || ""}`.toLowerCase();
     return text.includes(query.toLowerCase());
   });
+  const visibleDevices = filtered.slice(0, visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(120);
+  }, [query]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -909,7 +996,7 @@ function AssetsView({
 
       <Panel>
         <div className="grid gap-3 md:hidden">
-          {filtered.map((device) => {
+          {visibleDevices.map((device) => {
             const latest = device.dispositivo_id == null ? null : latestTelemetryByDevice.get(device.dispositivo_id);
             const metric = metricsByDevice.get(device.dispositivo_id);
             const alarmCount =
@@ -951,7 +1038,7 @@ function AssetsView({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((device) => {
+              {visibleDevices.map((device) => {
                 const latest = device.dispositivo_id == null ? null : latestTelemetryByDevice.get(device.dispositivo_id);
                 const metric = metricsByDevice.get(device.dispositivo_id);
                 const alarmCount =
@@ -973,6 +1060,18 @@ function AssetsView({
           </table>
           {!filtered.length ? <EmptyState text="Nenhum dispositivo encontrado para o filtro atual." /> : null}
         </div>
+        {filtered.length > visibleDevices.length ? (
+          <div className="mt-4 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setVisibleCount((count) => count + 120)}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm font-semibold text-white/75 transition hover:bg-white/[0.08]"
+            >
+              <ChevronDown className="h-4 w-4" />
+              Carregar mais ativos ({visibleDevices.length}/{filtered.length})
+            </button>
+          </div>
+        ) : null}
       </Panel>
     </div>
   );
@@ -1144,7 +1243,7 @@ function InsightsView({ insights }: { insights: EletrofrioInsight[] }) {
           </label>
 
           <label className="grid gap-2">
-            <span className="text-xs text-white/45">Criticidade</span>
+            <span className="text-xs text-white/45">Prioridade</span>
             <select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value)} className="rounded-xl border border-white/10 px-3 py-2 text-sm outline-none">
               {severityOptions.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -1544,6 +1643,8 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
   const [notificationRecipients, setNotificationRecipients] = useState<NotificationRecipient[]>([]);
   const [notificationBusy, setNotificationBusy] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+  const [recipientForm, setRecipientForm] = useState<RecipientFormState>(emptyRecipientForm);
+  const [editingRecipientId, setEditingRecipientId] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const connectedPhone = phoneFromWhatsappJid(whatsapp.status?.phone);
@@ -1726,6 +1827,80 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
     }
   };
 
+  const resetRecipientForm = () => {
+    setEditingRecipientId(null);
+    setRecipientForm(emptyRecipientForm);
+  };
+
+  const editRecipient = (recipient: NotificationRecipient) => {
+    setEditingRecipientId(recipient.id);
+    setRecipientForm({
+      name: recipient.name || "",
+      phone: recipient.phone || "",
+      role: recipient.role || "client",
+      customer_id: recipient.customer_id || "",
+      enabled: Boolean(recipient.enabled),
+      receive_critical: Boolean(recipient.receive_critical),
+      receive_warning_recurrent: Boolean(recipient.receive_warning_recurrent),
+      cooldown_minutes: recipient.cooldown_minutes || 60,
+    });
+  };
+
+  const saveRecipient = async () => {
+    const payload = recipientPayload(recipientForm);
+    if (!payload.phone) {
+      setNotificationMessage("Informe o telefone do destinatário.");
+      return;
+    }
+
+    try {
+      setNotificationBusy(true);
+      setNotificationMessage(null);
+      if (editingRecipientId) {
+        await eletrofrioApi.notificationUpdateRecipient(editingRecipientId, payload);
+        setNotificationMessage("Destinatário atualizado.");
+      } else {
+        await eletrofrioApi.notificationCreateRecipient(payload);
+        setNotificationMessage("Destinatário criado.");
+      }
+      resetRecipientForm();
+      await loadCommunicationHistory();
+    } catch (err) {
+      setNotificationMessage(err instanceof Error ? err.message : "Não foi possível salvar o destinatário.");
+    } finally {
+      setNotificationBusy(false);
+    }
+  };
+
+  const toggleRecipient = async (recipient: NotificationRecipient) => {
+    try {
+      setNotificationBusy(true);
+      setNotificationMessage(null);
+      await eletrofrioApi.notificationUpdateRecipient(recipient.id, { enabled: !recipient.enabled });
+      setNotificationMessage(recipient.enabled ? "Destinatário desativado." : "Destinatário ativado.");
+      await loadCommunicationHistory();
+    } catch (err) {
+      setNotificationMessage(err instanceof Error ? err.message : "Não foi possível alterar o destinatário.");
+    } finally {
+      setNotificationBusy(false);
+    }
+  };
+
+  const removeRecipient = async (recipientId: string) => {
+    try {
+      setNotificationBusy(true);
+      setNotificationMessage(null);
+      await eletrofrioApi.notificationDeleteRecipient(recipientId);
+      if (editingRecipientId === recipientId) resetRecipientForm();
+      setNotificationMessage("Destinatário removido.");
+      await loadCommunicationHistory();
+    } catch (err) {
+      setNotificationMessage(err instanceof Error ? err.message : "Não foi possível remover o destinatário.");
+    } finally {
+      setNotificationBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <Panel>
@@ -1811,8 +1986,95 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
               <h4 className="font-semibold text-white">Destinatários</h4>
               <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs text-white/55">{notificationRecipients.length}</span>
             </div>
+            {canManage ? (
+              <div className="mt-4 grid gap-3 rounded-lg border border-white/10 bg-black/10 p-3">
+                <div className="grid gap-2">
+                  <input
+                    value={recipientForm.name}
+                    onChange={(event) => setRecipientForm((form) => ({ ...form, name: event.target.value }))}
+                    placeholder="Nome"
+                    className="w-full rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm text-white outline-none placeholder:text-white/35"
+                  />
+                  <input
+                    value={recipientForm.phone}
+                    onChange={(event) => setRecipientForm((form) => ({ ...form, phone: event.target.value }))}
+                    placeholder="Telefone com DDD"
+                    className="w-full rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm text-white outline-none placeholder:text-white/35"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    value={recipientForm.role}
+                    onChange={(event) => setRecipientForm((form) => ({ ...form, role: event.target.value }))}
+                    className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none"
+                  >
+                    <option value="client">Cliente</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={5}
+                    value={recipientForm.cooldown_minutes}
+                    onChange={(event) => setRecipientForm((form) => ({ ...form, cooldown_minutes: Number(event.target.value) }))}
+                    className="rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm text-white outline-none"
+                  />
+                </div>
+                <input
+                  value={recipientForm.customer_id}
+                  onChange={(event) => setRecipientForm((form) => ({ ...form, customer_id: event.target.value }))}
+                  placeholder="Customer ID vazio para admin"
+                  className="w-full rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm text-white outline-none placeholder:text-white/35"
+                />
+                <div className="grid gap-2 text-xs text-white/65">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={recipientForm.enabled}
+                      onChange={(event) => setRecipientForm((form) => ({ ...form, enabled: event.target.checked }))}
+                    />
+                    Ativo
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={recipientForm.receive_critical}
+                      onChange={(event) => setRecipientForm((form) => ({ ...form, receive_critical: event.target.checked }))}
+                    />
+                    Receber críticas
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={recipientForm.receive_warning_recurrent}
+                      onChange={(event) => setRecipientForm((form) => ({ ...form, receive_warning_recurrent: event.target.checked }))}
+                    />
+                    Receber recorrências
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={notificationBusy}
+                    onClick={() => void saveRecipient()}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-60"
+                  >
+                    <Save className="h-4 w-4" />
+                    {editingRecipientId ? "Salvar" : "Adicionar"}
+                  </button>
+                  {editingRecipientId ? (
+                    <button
+                      type="button"
+                      onClick={resetRecipientForm}
+                      className="rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm font-semibold text-white/70"
+                    >
+                      Cancelar
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <div className="mt-4 grid gap-3">
-              {notificationRecipients.length ? notificationRecipients.slice(0, 6).map((item) => (
+              {notificationRecipients.length ? notificationRecipients.slice(0, 20).map((item) => (
                 <div key={item.id} className="rounded-lg border border-white/10 bg-black/10 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -1823,6 +2085,34 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
                       {item.enabled ? "ativo" : "inativo"}
                     </span>
                   </div>
+                  {canManage ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={notificationBusy}
+                        onClick={() => editRecipient(item)}
+                        className="rounded-md border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-semibold text-white/70 disabled:opacity-60"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={notificationBusy}
+                        onClick={() => void toggleRecipient(item)}
+                        className="rounded-md border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-semibold text-white/70 disabled:opacity-60"
+                      >
+                        {item.enabled ? "Desativar" : "Ativar"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={notificationBusy}
+                        onClick={() => void removeRecipient(item.id)}
+                        className="rounded-md border border-red-400/20 bg-red-400/10 px-2.5 py-1 text-xs font-semibold text-red-100 disabled:opacity-60"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               )) : (
                 <EmptyState text="Nenhum destinatário configurado." />
@@ -2064,6 +2354,299 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
                 Processar notificações
               </button>
           </div>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+type IntelligentAlertRow = {
+  id: string;
+  generatedAt: string;
+  type: string;
+  unit: string;
+  severity: string;
+  message: string;
+  relevance: string;
+  deliveryStatus: string;
+  deliveryTone: "success" | "warning" | "danger" | "muted";
+  recipient: string;
+  sentAt: string | null;
+};
+
+function notificationDeliveryLabel(status?: string | null) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "sent") return "Enviado para WhatsApp";
+  if (normalized === "dry_run") return "Apenas simulado";
+  if (normalized === "failed") return "Erro no envio";
+  if (normalized === "skipped") return "Ignorado pelas regras";
+  return "Pendente";
+}
+
+function notificationDeliveryTone(status?: string | null): "success" | "warning" | "danger" | "muted" {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "sent") return "success";
+  if (normalized === "dry_run") return "warning";
+  if (normalized === "failed") return "danger";
+  return "muted";
+}
+
+function insightTypeLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    temperature: "Temperatura",
+    alarm: "Alarme operacional",
+    recurrence: "Recorrência",
+    offline: "Comunicação",
+    operational_rule: "Regra operacional",
+    store_concentration: "Concentração por loja",
+  };
+  return labels[String(value || "").toLowerCase()] || value || "Insight operacional";
+}
+
+function unitFromNotification(item: NotificationEvent) {
+  const source = [item.message_full, item.message_preview, item.title].filter(Boolean).join("\n");
+  const lojaMatch = source.match(/(?:Loja|Unidade|Local):\s*([^\n.]+)/i);
+  return lojaMatch?.[1]?.trim() || "Unidade indicada na mensagem";
+}
+
+function notificationRelevanceReason(item: NotificationEvent) {
+  if (item.skip_reason) return item.skip_reason;
+  if (item.error_message) return item.error_message;
+  if (item.severity === "critical") return "Ocorrência crítica passou pelas regras determinísticas de relevância.";
+  if (item.title) return `Mensagem gerada por relevância operacional: ${item.title}.`;
+  return "Evento avaliado pelo motor automático com controle de cooldown e duplicidade.";
+}
+
+function automaticMessageFromInsight(insight: EletrofrioInsight) {
+  const unit = insight.loja_nome || (insight.loja_id != null ? `Loja ${insight.loja_id}` : "Unidade não informada");
+  const equipment = insight.tag || (insight.dispositivo_id != null ? `Dispositivo ${insight.dispositivo_id}` : "equipamento relacionado");
+  const problem = operationalSummaryText(insight);
+  const action = cleanOperationalText(insight.recommended_action, "Validar sensor, condição do equipamento e prioridade operacional.");
+
+  return `${unit} — ${equipment}. ${problem} Ação inicial: ${action}`;
+}
+
+function automaticRelevanceFromInsight(insight: EletrofrioInsight) {
+  const evidence = insight.evidence_json || {};
+  const priority = evidenceNumber(evidence, "operational_priority_score");
+  const rule = evidenceString(evidence, "rule_name", "");
+  if (insight.severity === "critical") return "Severidade crítica com risco operacional claro.";
+  if (priority != null && priority >= 55) return `Prioridade operacional ${priority}/100, suficiente para entrar na fila automática.`;
+  if (rule) return `Regra operacional aplicada: ${rule}.`;
+  return "Insight relevante no recorte atual, preparado sem chamada obrigatória de LLM.";
+}
+
+function IntelligentAlertsView({
+  insights,
+  whatsapp,
+}: {
+  insights: EletrofrioInsight[];
+  whatsapp: WhatsappController;
+}) {
+  const [status, setStatus] = useState<NotificationStatus | null>(null);
+  const [events, setEvents] = useState<NotificationEvent[]>([]);
+  const [recipients, setRecipients] = useState<NotificationRecipient[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const connectedPhone = phoneFromWhatsappJid(whatsapp.status?.phone);
+  const whatsappConnected = Boolean(whatsapp.status?.connected || status?.whatsapp?.connected);
+  const dryRun = Boolean(status?.dry_run || status?.whatsapp?.dryRun);
+  const enabledRecipients = useMemo(() => recipients.filter((item) => item.enabled), [recipients]);
+
+  const loadAlerts = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [statusResult, eventsResult, recipientsResult] = await Promise.all([
+        eletrofrioApi.notificationStatus(),
+        eletrofrioApi.notificationEvents({ limit: 100 }),
+        eletrofrioApi.notificationRecipients(),
+      ]);
+      setStatus(statusResult);
+      setEvents(eventsResult.items);
+      setRecipients(recipientsResult.items);
+      const schemaMessage = statusResult.message || eventsResult.message || recipientsResult.message;
+      if (schemaMessage) setError(schemaMessage);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível carregar os alertas inteligentes.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAlerts();
+    const interval = setInterval(() => {
+      void loadAlerts();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [loadAlerts]);
+
+  const rows = useMemo<IntelligentAlertRow[]>(() => {
+    const eventRows = events.map((item) => ({
+      id: `event-${item.id}`,
+      generatedAt: item.created_at,
+      type: item.channel === "whatsapp" ? "WhatsApp automático" : item.channel || "Alerta automático",
+      unit: unitFromNotification(item),
+      severity: severityLabel(item.severity || "info"),
+      message: item.message_full || item.message_preview || item.title || "Mensagem automática registrada.",
+      relevance: notificationRelevanceReason(item),
+      deliveryStatus: notificationDeliveryLabel(item.status),
+      deliveryTone: notificationDeliveryTone(item.status),
+      recipient: item.phone || enabledRecipients[0]?.phone || connectedPhone || "Nenhum destinatário conectado",
+      sentAt: item.sent_at,
+    }));
+
+    if (eventRows.length) return eventRows;
+
+    return insights
+      .filter((item) => item.severity === "critical" || severityRankForUi(item.severity) >= 2)
+      .slice(0, 12)
+      .map((item) => ({
+        id: `preview-${item.id}`,
+        generatedAt: item.created_at,
+        type: insightTypeLabel(item.insight_type),
+        unit: item.loja_nome || (item.loja_id != null ? `Loja ${item.loja_id}` : "Unidade não informada"),
+        severity: severityLabel(item.severity),
+        message: automaticMessageFromInsight(item),
+        relevance: automaticRelevanceFromInsight(item),
+        deliveryStatus: whatsappConnected
+          ? dryRun
+            ? "Apenas simulado"
+            : "Pendente para envio"
+          : "Simulado — nenhum WhatsApp conectado",
+        deliveryTone: whatsappConnected && !dryRun ? "muted" : "warning",
+        recipient: connectedPhone || enabledRecipients[0]?.phone || "Sem WhatsApp conectado",
+        sentAt: item.whatsapp_sent_at,
+      }));
+  }, [connectedPhone, dryRun, enabledRecipients, events, insights, whatsappConnected]);
+
+  const sentCount = rows.filter((item) => item.deliveryTone === "success").length;
+  const simulatedCount = rows.filter((item) => item.deliveryStatus.toLowerCase().includes("simulado")).length;
+  const failedCount = rows.filter((item) => item.deliveryTone === "danger").length;
+  const pendingCount = rows.filter((item) => item.deliveryStatus.toLowerCase().includes("pendente")).length;
+
+  const StatusIcon = ({ tone }: { tone: IntelligentAlertRow["deliveryTone"] }) => {
+    if (tone === "success") return <CheckCircle2 className="h-4 w-4" />;
+    if (tone === "danger") return <XCircle className="h-4 w-4" />;
+    if (tone === "warning") return <BellRing className="h-4 w-4" />;
+    return <Clock3 className="h-4 w-4" />;
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Panel>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold md:text-3xl">Alertas Inteligentes</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Histórico dos avisos automáticos gerados pelo motor operacional. A IA só entra quando a regra local não é suficiente e o orçamento permite.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => void loadAlerts()}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-white px-4 py-3 text-sm font-semibold text-sky-800 shadow-sm transition hover:bg-sky-50 disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </button>
+        </div>
+      </Panel>
+
+      {error ? <ErrorBanner message={error} /> : null}
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <StatusCard label="Canal WhatsApp" value={whatsappConnected ? "Conectado" : "Sem conexão"} tone={whatsappConnected ? "success" : "warning"} />
+        <StatusCard label="Modo" value={dryRun ? "Simulação" : "Envio real"} tone={dryRun ? "warning" : "success"} />
+        <StatusCard label="Enviados" value={sentCount} tone={sentCount ? "success" : "muted"} />
+        <StatusCard label="Simulados" value={simulatedCount} tone={simulatedCount ? "warning" : "muted"} />
+        <StatusCard label="Pendências / erros" value={`${pendingCount} / ${failedCount}`} tone={failedCount ? "danger" : pendingCount ? "warning" : "muted"} />
+      </section>
+
+      <Panel>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h3 className="text-xl font-semibold">Histórico automático</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Mostra o que foi enviado, o que seria enviado em simulação e por que a mensagem foi considerada relevante.
+            </p>
+          </div>
+          <span className="rounded-md border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800">
+            {rows.length} registros
+          </span>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:hidden">
+          {rows.length ? rows.map((item) => (
+            <article key={`${item.id}-mobile`} className="surface-muted rounded-xl p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium text-slate-500">{formatDate(item.generatedAt)}</p>
+                  <h4 className="mt-1 text-base font-semibold text-slate-900">{item.type}</h4>
+                  <p className="mt-1 text-sm text-slate-600">{item.unit}</p>
+                </div>
+                <span className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold ${statusPillClass(item.deliveryTone)}`}>
+                  <StatusIcon tone={item.deliveryTone} />
+                  {item.deliveryStatus}
+                </span>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-slate-700">{item.message}</p>
+              <p className="mt-3 text-xs leading-5 text-slate-500">{item.relevance}</p>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                <span className="pill-soft rounded-md px-2.5 py-1">{item.severity}</span>
+                <span className="pill-soft rounded-md px-2.5 py-1">{item.recipient}</span>
+                <span className="pill-soft rounded-md px-2.5 py-1">{item.sentAt ? `Enviado em ${formatDate(item.sentAt)}` : "Sem envio confirmado"}</span>
+              </div>
+            </article>
+          )) : (
+            <EmptyState text="Nenhum alerta relevante encontrado no recorte atual." />
+          )}
+        </div>
+
+        <div className="mt-5 hidden overflow-x-auto md:block">
+          {rows.length ? (
+            <table className="w-full min-w-[1100px] border-separate border-spacing-y-2 text-left text-sm">
+              <thead>
+                <tr className="text-xs font-semibold text-slate-500">
+                  <th className="px-3 py-2">Data e hora</th>
+                  <th className="px-3 py-2">Tipo</th>
+                  <th className="px-3 py-2">Unidade/local</th>
+                  <th className="px-3 py-2">Prioridade</th>
+                  <th className="px-3 py-2">Mensagem gerada</th>
+                  <th className="px-3 py-2">Motivo da relevância</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Destino</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((item) => (
+                  <tr key={item.id} className="surface-muted align-top">
+                    <td className="rounded-l-xl px-3 py-4 text-slate-600">{formatDate(item.generatedAt)}</td>
+                    <td className="px-3 py-4 font-semibold text-slate-800">{item.type}</td>
+                    <td className="px-3 py-4 text-slate-700">{item.unit}</td>
+                    <td className="px-3 py-4">
+                      <span className="pill-soft rounded-md px-2.5 py-1 text-xs font-semibold">{item.severity}</span>
+                    </td>
+                    <td className="max-w-[280px] px-3 py-4 leading-6 text-slate-700">{item.message}</td>
+                    <td className="max-w-[260px] px-3 py-4 leading-6 text-slate-600">{item.relevance}</td>
+                    <td className="px-3 py-4">
+                      <span className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-semibold ${statusPillClass(item.deliveryTone)}`}>
+                        <StatusIcon tone={item.deliveryTone} />
+                        {item.deliveryStatus}
+                      </span>
+                      {item.sentAt ? <p className="mt-2 text-xs text-slate-500">{formatDate(item.sentAt)}</p> : null}
+                    </td>
+                    <td className="rounded-r-xl px-3 py-4 text-slate-600">{item.recipient}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <EmptyState text="Nenhum alerta relevante encontrado no recorte atual." />
+          )}
         </div>
       </Panel>
     </div>
@@ -2531,10 +3114,10 @@ function compactText(value: string | null | undefined, fallback = "-", max = 150
 
 function statusPillClass(tone: "success" | "warning" | "danger" | "muted") {
   const classes = {
-    success: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
-    warning: "border-amber-400/25 bg-amber-400/10 text-amber-200",
-    danger: "border-red-400/25 bg-red-400/10 text-red-200",
-    muted: "border-white/10 bg-white/[0.055] text-slate-300",
+    success: "border-emerald-300/50 bg-emerald-50 text-emerald-700",
+    warning: "border-amber-300/60 bg-amber-50 text-amber-700",
+    danger: "border-red-300/55 bg-red-50 text-red-700",
+    muted: "border-slate-200 bg-slate-100 text-slate-600",
   };
   return classes[tone];
 }
@@ -2566,8 +3149,8 @@ function StatusCard({
   tone: "success" | "warning" | "danger" | "muted";
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-[#121a24] p-4">
-      <p className="text-xs text-white/45">{label}</p>
+    <div className={`status-card status-card-${tone} surface-soft rounded-xl p-4`}>
+      <p className="text-xs font-medium text-slate-500">{label}</p>
       <div className={`mt-2 inline-flex rounded-md border px-2.5 py-1 text-sm font-semibold ${statusPillClass(tone)}`}>
         {value}
       </div>
@@ -2577,9 +3160,9 @@ function StatusCard({
 
 function InfoTile({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
-      <p className="text-xs text-white/45">{label}</p>
-      <p className="mt-2 text-sm font-semibold text-white">{value}</p>
+    <div className="surface-muted rounded-xl p-4">
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-slate-800">{value}</p>
     </div>
   );
 }
@@ -2908,7 +3491,7 @@ export default function HomePage() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const isAuthenticated = Boolean(authUser);
-  const overviewState = useEletrofrioOverview(isAuthenticated);
+  const overviewState = useEletrofrioOverview(isAuthenticated, activeView === "ativos");
   const insightsState = useEletrofrioInsights(isAuthenticated);
   const whatsapp = useWhatsappStatus(30000, isAuthenticated);
   const [collectorBusy, setCollectorBusy] = useState(false);
@@ -3009,6 +3592,7 @@ export default function HomePage() {
     dashboard: "Visão geral",
     ativos: "Ativos",
     alertas: "Ocorrências",
+    inteligentes: "Alertas Inteligentes",
     operacao: "Operação",
     regras: "Regras",
     whatsapp: "WhatsApp",
@@ -3036,17 +3620,14 @@ export default function HomePage() {
       />
     ),
     alertas: <InsightsView insights={insightsState.insights} />,
+    inteligentes: <IntelligentAlertsView insights={insightsState.insights} whatsapp={whatsapp} />,
     operacao: <OperationView />,
     regras: <RulesView canManage={isAdmin} />,
     whatsapp: <WhatsappView whatsapp={whatsapp} canManage={isAdmin} />,
   } satisfies Record<ViewId, React.ReactNode>;
 
   if (!authChecked) {
-    return (
-      <main className="industrial-ui grid min-h-screen place-items-center text-slate-100">
-        <Loader2 className="h-8 w-8 animate-spin text-sky-200" />
-      </main>
-    );
+    return <LoadingSplash text="Validando sessão e permissões." />;
   }
 
   if (!authUser) {
@@ -3064,7 +3645,7 @@ export default function HomePage() {
           onLogout={handleLogout}
         />
 
-        <div className={`grid flex-1 ${sidebarCollapsed ? "lg:grid-cols-[76px_minmax(0,1fr)]" : "lg:grid-cols-[260px_minmax(0,1fr)]"}`}>
+        <div className={`app-shell-grid grid flex-1 ${sidebarCollapsed ? "is-sidebar-collapsed" : ""}`}>
           <Sidebar
             activeView={activeView}
             onViewChange={changeView}
@@ -3079,7 +3660,7 @@ export default function HomePage() {
           />
 
           <section className="min-w-0 flex-1 px-3 pb-24 pt-3 sm:px-4 md:px-5 lg:px-6 lg:pb-6 lg:pt-4">
-            <div className="animate-fade-up mx-auto flex w-full max-w-[1360px] flex-col gap-4">
+            <div key={activeView} className="app-content-view mx-auto flex w-full max-w-[1360px] flex-col gap-4">
               {overviewState.error ? <ErrorBanner message={overviewState.error} /> : null}
               {insightsState.error && activeView === "alertas" ? (
                 <ErrorBanner message={insightsState.error} />
