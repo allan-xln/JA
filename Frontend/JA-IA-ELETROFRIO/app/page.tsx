@@ -450,6 +450,19 @@ function phoneFromWhatsappJid(value?: string | null) {
   return value.split("@", 1)[0].split(":", 1)[0].replace(/\D/g, "");
 }
 
+function normalizeRecipientPhone(value: string) {
+  let digits = value.replace(/\D/g, "");
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
+    digits = digits.slice(2);
+  }
+  return digits;
+}
+
+function clampCooldownMinutes(value: number) {
+  if (!Number.isFinite(value)) return 60;
+  return Math.min(60, Math.max(1, Math.round(value)));
+}
+
 type RecipientFormState = {
   name: string;
   phone: string;
@@ -475,13 +488,13 @@ const emptyRecipientForm: RecipientFormState = {
 function recipientPayload(form: RecipientFormState) {
   return {
     name: form.name.trim() || null,
-    phone: form.phone.trim(),
+    phone: normalizeRecipientPhone(form.phone),
     role: form.role || "client",
     customer_id: form.customer_id.trim() || null,
     enabled: form.enabled,
     receive_critical: form.receive_critical,
     receive_warning_recurrent: form.receive_warning_recurrent,
-    cooldown_minutes: Math.max(5, Number(form.cooldown_minutes) || 60),
+    cooldown_minutes: clampCooldownMinutes(Number(form.cooldown_minutes)),
     channel: "whatsapp",
   };
 }
@@ -1918,6 +1931,10 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
       setNotificationMessage("Informe o telefone do destinatário.");
       return;
     }
+    if (![10, 11].includes(payload.phone.length)) {
+      setNotificationMessage("Use o telefone só com DDD e número. Exemplo: 41984476869.");
+      return;
+    }
 
     try {
       setNotificationBusy(true);
@@ -2063,8 +2080,9 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
                   />
                   <input
                     value={recipientForm.phone}
-                    onChange={(event) => setRecipientForm((form) => ({ ...form, phone: event.target.value }))}
-                    placeholder="Telefone com DDD"
+                    onChange={(event) => setRecipientForm((form) => ({ ...form, phone: normalizeRecipientPhone(event.target.value) }))}
+                    placeholder="DDD + número. Ex: 41984476869"
+                    inputMode="numeric"
                     className="w-full rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm text-white outline-none placeholder:text-white/35"
                   />
                 </div>
@@ -2079,12 +2097,15 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
                   </select>
                   <input
                     type="number"
-                    min={5}
+                    min={1}
+                    max={60}
                     value={recipientForm.cooldown_minutes}
+                    onBlur={() => setRecipientForm((form) => ({ ...form, cooldown_minutes: clampCooldownMinutes(Number(form.cooldown_minutes)) }))}
                     onChange={(event) => setRecipientForm((form) => ({ ...form, cooldown_minutes: Number(event.target.value) }))}
                     className="rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm text-white outline-none"
                   />
                 </div>
+                <p className="text-xs text-white/45">Cooldown de 1 a 60 minutos. O telefone deve ser salvo só com DDD e número.</p>
                 <input
                   value={recipientForm.customer_id}
                   onChange={(event) => setRecipientForm((form) => ({ ...form, customer_id: event.target.value }))}
@@ -2145,7 +2166,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-white">{item.name || item.phone}</p>
-                      <p className="mt-1 text-xs text-white/45">{item.phone} / {item.role || "cliente"}</p>
+                      <p className="mt-1 text-xs text-white/45">{item.phone} / {item.role || "cliente"} / {item.cooldown_minutes || 60} min</p>
                     </div>
                     <span className={`rounded-md px-2 py-1 text-xs ${item.enabled ? "bg-emerald-400/10 text-emerald-200" : "bg-white/10 text-white/45"}`}>
                       {item.enabled ? "ativo" : "inativo"}

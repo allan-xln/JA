@@ -84,3 +84,15 @@ docker compose up -d --build
 ## Frase de Fechamento
 
 “O valor do projeto está em sair de dados espalhados para uma operação priorizada: coleta real, regras técnicas auditáveis, evidências, diagnóstico controlado e comunicação direta pelo WhatsApp.”
+
+## Se Entrarem Em Valores
+
+Não abrir com preço alto nem com tom de software house. A melhor linha é tratar como um primeiro contrato de parceria:
+
+- piloto de 90 dias: **R$ 7.000 a R$ 10.000**;
+- contrato inicial: **R$ 25.000 de entrada + R$ 1.800/mês**;
+- mensalidade maior só se incluir evolução, operação assistida ou SLA.
+
+Frase simples:
+
+“Como nasceu de uma oportunidade acadêmica, a entrada fica bem abaixo do que esse tipo de sistema custaria no mercado. A mensalidade é para manter a operação acompanhada, com suporte e pequenos ajustes.”

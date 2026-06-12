@@ -148,3 +148,15 @@ Conferir:
 - IA sem GPT: confirmar `OPENAI_API_KEY`; fallback local deve continuar respondendo.
 - Docker sem build: confirmar Docker instalado e daemon ativo.
 - Scheduler duplicado: no Docker manter `ELETROFRIO_START_INTERNAL_SCHEDULER=false`.
+
+## Se Perguntarem Valores
+
+Tratar como primeiro contrato de parceria, nao como venda de software house:
+
+- piloto de 90 dias: **R$ 7.000 a R$ 10.000**;
+- contrato inicial: **R$ 25.000 de entrada + R$ 1.800/mes**;
+- mensalidade maior apenas se entrar evolucao, operacao assistida ou SLA.
+
+Frase simples:
+
+"Como nasceu de uma oportunidade academica, a entrada fica abaixo do custo normal de mercado. A mensalidade e para manter a operacao acompanhada, com suporte e pequenos ajustes."

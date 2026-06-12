@@ -149,6 +149,8 @@ O seed `python -m api.scripts.seed_tenants` cria o usuário admin e usuários de
 
 - `Documentações/MULTI_TENANT.md`
 - `Documentações/USUARIOS_DEMO.md`
+- `Documentações/LEVANTAMENTO_TECNICO_COMERCIAL_ELETROFRIO.md`
+- `Documentações/VALORES_COMERCIAIS_ELETROFRIO.md`
 
 ### Motor De Regras Operacionais
 

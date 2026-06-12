@@ -31,6 +31,22 @@ AI_NOTIFICATION_SYSTEM_PROMPT = (
 )
 
 
+def _clamp_cooldown_minutes(value: Any) -> int:
+    try:
+        return min(60, max(1, int(value or 60)))
+    except (TypeError, ValueError):
+        return 60
+
+
+def _normalize_recipient_phone(value: Any) -> str:
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if digits.startswith("55") and len(digits) in {12, 13}:
+        digits = digits[2:]
+    if len(digits) not in {10, 11}:
+        raise ValueError("Telefone deve estar no formato DDD + número. Exemplo: 41984476869.")
+    return digits
+
+
 def _schema_missing(exc: Exception) -> bool:
     text = str(exc).lower()
     return (
@@ -181,10 +197,7 @@ def _event_exists(notification_hash: str, include_dry_run: bool = False) -> bool
 
 
 def _recipient_in_cooldown(recipient: dict[str, Any], include_dry_run: bool = True) -> bool:
-    try:
-        cooldown = max(5, int(recipient.get("cooldown_minutes") or 60))
-    except (TypeError, ValueError):
-        cooldown = 60
+    cooldown = _clamp_cooldown_minutes(recipient.get("cooldown_minutes"))
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=cooldown)).isoformat()
     params: dict[str, Any] = {
         "select": "id,created_at",
@@ -318,12 +331,12 @@ def _env_recipients(scope: TenantScope | None = None) -> list[dict[str, Any]]:
             "customer_id": None,
             "role": "admin",
             "name": "Admin via WHATSAPP_ALERT_TO",
-            "phone": phone,
+            "phone": _normalize_recipient_phone(phone),
             "channel": "whatsapp",
             "enabled": True,
             "receive_critical": True,
             "receive_warning_recurrent": True,
-            "cooldown_minutes": settings.whatsapp_alert_cooldown_minutes,
+            "cooldown_minutes": _clamp_cooldown_minutes(settings.whatsapp_alert_cooldown_minutes),
             "source": "env",
         }
         for index, phone in enumerate(phones, 1)
@@ -337,12 +350,12 @@ def create_recipient(payload: dict[str, Any]) -> dict[str, Any]:
             "customer_id": payload.get("customer_id"),
             "role": payload.get("role") or ("client" if payload.get("customer_id") else "admin"),
             "name": payload.get("name"),
-            "phone": payload.get("phone"),
+            "phone": _normalize_recipient_phone(payload.get("phone")),
             "channel": payload.get("channel") or "whatsapp",
             "enabled": payload.get("enabled", True),
             "receive_critical": payload.get("receive_critical", True),
             "receive_warning_recurrent": payload.get("receive_warning_recurrent", True),
-            "cooldown_minutes": max(5, int(payload.get("cooldown_minutes") or 60)),
+            "cooldown_minutes": _clamp_cooldown_minutes(payload.get("cooldown_minutes")),
         },
     )
     return rows[0] if rows else {}
@@ -361,8 +374,10 @@ def update_recipient(recipient_id: str, payload: dict[str, Any]) -> dict[str, An
         "cooldown_minutes",
     }
     data = {key: value for key, value in payload.items() if key in allowed}
+    if "phone" in data and data["phone"] is not None:
+        data["phone"] = _normalize_recipient_phone(data["phone"])
     if "cooldown_minutes" in data:
-        data["cooldown_minutes"] = max(5, int(data["cooldown_minutes"] or 60))
+        data["cooldown_minutes"] = _clamp_cooldown_minutes(data["cooldown_minutes"])
     rows = supabase.patch("eletrofrio_notification_recipients", {"id": recipient_id}, data)
     return rows[0] if rows else {}
 
@@ -553,6 +568,7 @@ def send_test_notification(payload: dict[str, Any], scope: TenantScope | None = 
     phone = payload.get("phone") or recipient.get("phone")
     if not phone:
         raise ValueError("Informe phone ou recipient_id para envio de teste.")
+    phone = _normalize_recipient_phone(phone)
 
     recipient = {**recipient, "phone": phone, "channel": recipient.get("channel") or "whatsapp"}
     message = str(payload.get("message") or "Teste de notificação operacional Eletrofrio.").strip()

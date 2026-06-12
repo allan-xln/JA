@@ -385,7 +385,10 @@ def eletrofrio_notifications_recipients(user: AuthUser = Depends(current_user)):
 @router.post("/notifications/recipients")
 def eletrofrio_notifications_recipients_create(payload: NotificationRecipientPayload, user: AuthUser = Depends(require_admin)):
     require_supabase()
-    return create_recipient(payload.dict())
+    try:
+        return create_recipient(payload.dict())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch("/notifications/recipients/{recipient_id}")
@@ -394,7 +397,10 @@ def eletrofrio_notifications_recipients_update(recipient_id: str, payload: Notif
     data = payload.dict(exclude_unset=True)
     if not data:
         raise HTTPException(status_code=400, detail="Nenhum campo para atualizar.")
-    return update_recipient(recipient_id, data)
+    try:
+        return update_recipient(recipient_id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/notifications/recipients/{recipient_id}")
