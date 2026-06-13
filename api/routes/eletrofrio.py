@@ -51,7 +51,7 @@ _overview_cache: dict[str, tuple[float, dict]] = {}
 
 class WhatsAppTestPayload(BaseModel):
     phone: str
-    message: str = "Teste de WhatsApp da Eletrofrio IA."
+    message: str = "*Eletrofrio Refrigeração*\n✅ *Teste recebido*\n\nO canal operacional está pronto para enviar métricas e alertas inteligentes."
 
 
 class AssistantQueryPayload(BaseModel):
@@ -107,7 +107,7 @@ class NotificationRecipientPatchPayload(BaseModel):
 class NotificationTestPayload(BaseModel):
     recipient_id: str | None = None
     phone: str | None = None
-    message: str = "Teste de notificação operacional Eletrofrio."
+    message: str = "*Eletrofrio Refrigeração*\n✅ *Teste recebido*\n\nO canal operacional está pronto para enviar métricas e alertas inteligentes."
     dry_run: bool = True
 
 

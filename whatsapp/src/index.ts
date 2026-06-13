@@ -38,7 +38,10 @@ app.post("/logout", async (_req, res) => {
 app.post("/send-test", async (req, res) => {
   try {
     const phone = String(req.body?.phone || "");
-    const message = String(req.body?.message || "Teste de WhatsApp da Eletrofrio IA.");
+    const message = String(
+      req.body?.message ||
+      "*Eletrofrio Refrigeração*\n✅ *Teste recebido*\n\nO canal operacional está pronto para enviar métricas e alertas inteligentes.",
+    );
     res.json(await sendWhatsAppMessage(phone, message));
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
