@@ -2204,7 +2204,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
           <StatusCard label="Destinatários" value={notificationStatus?.recipients ?? notificationRecipients.length} tone={notificationRecipients.length ? "success" : "muted"} />
           <StatusCard label="Hoje" value={`${notificationCounts.sent || 0} env. / ${notificationCounts.dry_run || 0} dry-run`} tone={(notificationCounts.sent || notificationCounts.dry_run) ? "success" : "muted"} />
         </div>
-        <div className="mt-5 grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)] 2xl:grid-cols-[360px_380px_minmax(0,1fr)]">
+        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(300px,340px)_minmax(300px,360px)_minmax(0,1fr)]">
           <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
             <div className="flex items-center justify-between gap-3">
               <h4 className="font-semibold text-white">Destinatários</h4>
@@ -2426,23 +2426,33 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
             <div className="mt-4 grid gap-3">
               {historyLoading && !notificationEvents.length ? (
                 <LoadingState text="Carregando auditoria automática..." />
-              ) : notificationEvents.length ? notificationEvents.slice(0, 8).map((item) => (
-                <article key={item.id} className="rounded-lg border border-white/10 bg-black/10 p-3">
-                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex flex-wrap gap-2">
-                        <span className="rounded-md bg-black/20 px-2.5 py-1 text-xs font-semibold">{statusLabel(item.status)}</span>
-                        <span className="rounded-md bg-black/20 px-2.5 py-1 text-xs">{severityLabel(item.severity || "info")}</span>
-                      </div>
-                      <p className="mt-2 text-sm font-semibold text-white">{item.title || "Notificação operacional"}</p>
-                      <p className="mt-1 text-sm leading-5 text-white/60">
-                        {item.message_preview || item.skip_reason || item.error_message || "Evento registrado."}
-                      </p>
+              ) : notificationEvents.length ? (
+                <>
+                  {historyLoading ? (
+                    <div className="inline-flex items-center gap-2 rounded-lg border border-sky-300/15 bg-sky-300/10 px-3 py-2 text-xs font-semibold text-sky-100">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Atualizando auditoria...
                     </div>
-                    <span className="text-xs text-white/45">{formatDate(item.created_at)}</span>
-                  </div>
-                </article>
-              )) : (
+                  ) : null}
+                  {notificationEvents.slice(0, 8).map((item) => (
+                    <article key={item.id} className="rounded-lg border border-white/10 bg-black/10 p-3">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div className="flex flex-wrap gap-2">
+                            <span className="rounded-md bg-black/20 px-2.5 py-1 text-xs font-semibold">{statusLabel(item.status)}</span>
+                            <span className="rounded-md bg-black/20 px-2.5 py-1 text-xs">{severityLabel(item.severity || "info")}</span>
+                          </div>
+                          <p className="mt-2 text-sm font-semibold text-white">{item.title || "Notificação operacional"}</p>
+                          <p className="mt-1 text-sm leading-5 text-white/60">
+                            {item.message_preview || item.skip_reason || item.error_message || "Evento registrado."}
+                          </p>
+                        </div>
+                        <span className="text-xs text-white/45">{formatDate(item.created_at)}</span>
+                      </div>
+                    </article>
+                  ))}
+                </>
+              ) : (
                 <EmptyState text="Nenhuma notificação registrada ainda." />
               )}
             </div>
@@ -2478,24 +2488,34 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
           <div className="mt-5 grid gap-3">
             {historyLoading && !visibleCommunications.length ? (
               <LoadingState text="Carregando conversas operacionais..." />
-            ) : visibleCommunications.length ? visibleCommunications.slice(0, 12).map((item) => (
-              <article key={item.id} className="rounded-xl border border-white/10 bg-white/[0.035] p-3 sm:p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <div className="flex flex-wrap gap-2">
-                      <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs font-semibold">{typeLabel(item.type)}</span>
-                      <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs">{statusLabel(item.status)}</span>
-                      <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs">{item.source}</span>
-                    </div>
-                    <p className="mt-3 text-sm leading-6 text-white/78">{item.message_preview || "Evento operacional registrado."}</p>
-                    <p className="mt-2 text-xs text-white/45">
-                      {[item.phone, item.loja_nome, item.tag].filter(Boolean).join(" / ") || "Sem vínculo operacional direto"}
-                    </p>
+            ) : visibleCommunications.length ? (
+              <>
+                {historyLoading ? (
+                  <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-sky-300/15 bg-sky-300/10 px-3 py-2 text-xs font-semibold text-sky-100">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Atualizando conversas...
                   </div>
-                  <span className="text-xs text-white/45">{formatDate(item.created_at)}</span>
-                </div>
-              </article>
-            )) : (
+                ) : null}
+                {visibleCommunications.slice(0, 12).map((item) => (
+                  <article key={item.id} className="rounded-xl border border-white/10 bg-white/[0.035] p-3 sm:p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs font-semibold">{typeLabel(item.type)}</span>
+                          <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs">{statusLabel(item.status)}</span>
+                          <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs">{item.source}</span>
+                        </div>
+                        <p className="mt-3 text-sm leading-6 text-white/78">{item.message_preview || "Evento operacional registrado."}</p>
+                        <p className="mt-2 text-xs text-white/45">
+                          {[item.phone, item.loja_nome, item.tag].filter(Boolean).join(" / ") || "Sem vínculo operacional direto"}
+                        </p>
+                      </div>
+                      <span className="text-xs text-white/45">{formatDate(item.created_at)}</span>
+                    </div>
+                  </article>
+                ))}
+              </>
+            ) : (
               <EmptyState text="Nenhuma comunicação operacional registrada ainda." />
             )}
           </div>
