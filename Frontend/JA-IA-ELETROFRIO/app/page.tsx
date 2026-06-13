@@ -54,6 +54,8 @@ type WhatsappController = ReturnType<typeof useWhatsappStatus>;
 const VIEW_IDS = ["dashboard", "ativos", "alertas", "inteligentes", "operacao", "regras", "whatsapp"] as const satisfies readonly ViewId[];
 const VIEW_STORAGE_KEY = "eletrofrio.activeView";
 const ASSETS_PAGE_SIZE = 40;
+const OCCURRENCES_PAGE_SIZE = 8;
+const ALERTS_PAGE_SIZE = 10;
 
 const severityTone: Record<string, string> = {
   critical: "border-red-400/30 bg-red-400/10 text-red-100",
@@ -110,6 +112,32 @@ function severityLabel(value: string | null | undefined) {
   if (["medium", "media", "média", "warning", "m"].includes(normalized)) return "Atenção";
   if (["low", "baixa", "b"].includes(normalized)) return "Monitoramento";
   return "Informativo";
+}
+
+function occurrenceTone(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "critical") {
+    return {
+      card: "border-red-200 bg-red-50/80",
+      title: "text-red-800",
+      pill: "border-red-200 bg-red-100 text-red-700",
+      bar: "bg-red-400",
+    };
+  }
+  if (normalized === "warning") {
+    return {
+      card: "border-amber-200 bg-amber-50/80",
+      title: "text-amber-800",
+      pill: "border-amber-200 bg-amber-100 text-amber-800",
+      bar: "bg-amber-400",
+    };
+  }
+  return {
+    card: "border-sky-100 bg-white/85",
+    title: "text-slate-900",
+    pill: "border-sky-100 bg-sky-50 text-sky-700",
+    bar: "bg-sky-400",
+  };
 }
 
 const ALARM_PRIORITY_BUCKETS = [
@@ -572,6 +600,83 @@ function EmptyState({ text }: { text: string }) {
   return (
     <div className="rounded-xl border border-dashed border-white/12 bg-white/[0.55] p-8 text-center text-sm text-slate-500">
       {text}
+    </div>
+  );
+}
+
+function pageWindow(currentPage: number, totalPages: number) {
+  const pages = new Set<number>([1, 2, 3, currentPage - 1, currentPage, currentPage + 1, totalPages]);
+  return Array.from(pages)
+    .filter((item) => item >= 1 && item <= totalPages)
+    .sort((a, b) => a - b);
+}
+
+function PaginationBar({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
+  itemLabel,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  itemLabel: string;
+  onPageChange: (page: number) => void;
+}) {
+  const start = totalItems ? (currentPage - 1) * pageSize + 1 : 0;
+  const end = Math.min(currentPage * pageSize, totalItems);
+  const pages = pageWindow(currentPage, totalPages);
+
+  return (
+    <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-sm text-slate-500">
+        Exibindo {start}-{end} de {totalItems} {itemLabel}
+      </span>
+      {totalPages > 1 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.55] px-3 text-sm font-semibold text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Anterior
+          </button>
+          {pages.map((pageNumber, index) => {
+            const previous = pages[index - 1];
+            const showGap = previous != null && pageNumber - previous > 1;
+            const active = pageNumber === currentPage;
+            return (
+              <div key={pageNumber} className="flex items-center gap-2">
+                {showGap ? <span className="text-sm text-slate-400">...</span> : null}
+                <button
+                  type="button"
+                  onClick={() => onPageChange(pageNumber)}
+                  className={`flex h-10 min-w-10 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition ${
+                    active
+                      ? "border-sky-200 bg-sky-100 text-sky-800"
+                      : "border-white/10 bg-white/[0.55] text-slate-600 hover:bg-white"
+                  }`}
+                  aria-current={active ? "page" : undefined}
+                >
+                  {pageNumber}
+                </button>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.55] px-3 text-sm font-semibold text-slate-600 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Próxima
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1161,6 +1266,7 @@ function InsightsView({ insights, loading }: { insights: EletrofrioInsight[]; lo
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [sortBy, setSortBy] = useState("priority");
+  const [page, setPage] = useState(1);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryResult, setSummaryResult] = useState<OperationalSummaryResult | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -1236,6 +1342,13 @@ function InsightsView({ insights, loading }: { insights: EletrofrioInsight[]; lo
   const warningCount = insights.filter((item) => item.severity === "warning").length;
   const infoCount = insights.filter((item) => item.severity === "info").length;
   const hasFilters = Boolean(query || severityFilter !== "all" || periodFilter !== "all" || fromDate || toDate);
+  const totalPages = Math.max(1, Math.ceil(filteredInsights.length / OCCURRENCES_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const visibleInsights = filteredInsights.slice((currentPage - 1) * OCCURRENCES_PAGE_SIZE, currentPage * OCCURRENCES_PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [fromDate, periodFilter, query, severityFilter, sortBy, toDate]);
 
   const clearFilters = () => {
     setQuery("");
@@ -1244,6 +1357,7 @@ function InsightsView({ insights, loading }: { insights: EletrofrioInsight[]; lo
     setFromDate("");
     setToDate("");
     setSortBy("priority");
+    setPage(1);
   };
 
   const sendWhatsappSummary = async () => {
@@ -1387,94 +1501,94 @@ function InsightsView({ insights, loading }: { insights: EletrofrioInsight[]; lo
         </div>
       </Panel>
 
-      <div className="grid gap-4">
-        {filteredInsights.length ? (
-          filteredInsights.map((insight) => {
+      <Panel>
+        <PaginationBar
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredInsights.length}
+          pageSize={OCCURRENCES_PAGE_SIZE}
+          itemLabel="ocorrências"
+          onPageChange={setPage}
+        />
+
+        <div className="mt-5 grid gap-3">
+          {visibleInsights.length ? (
+            visibleInsights.map((insight) => {
             const analysis = occurrenceAnalysis(insight);
             const priority = operationalPriorityView(analysis.score);
+            const tone = occurrenceTone(insight.severity);
             return (
-              <article key={insight.id} className={`rounded-xl border p-3 sm:p-4 ${severityTone[insight.severity] || severityTone.info}`}>
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <article key={insight.id} className={`rounded-xl border p-4 shadow-sm ${tone.card}`}>
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs font-semibold">
+                      <span className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${tone.pill}`}>
                         {severityLabel(insight.severity)}
                       </span>
-                      <span className="rounded-md bg-black/15 px-2.5 py-1 text-xs">
+                      <span className="rounded-md border border-white/60 bg-white/60 px-2.5 py-1 text-xs font-semibold text-slate-600">
                         Confiança {analysis.confidence}
                       </span>
-                      <div className={`min-w-[220px] rounded-lg border px-3 py-2 ${priority.tone}`}>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-xs font-semibold">{priority.label}</span>
-                          <span className="text-[11px] opacity-80">{priority.scoreText}</span>
-                        </div>
-                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/25">
-                          <div className={`h-full rounded-full ${priority.bar}`} style={{ width: `${priority.percent}%` }} />
-                        </div>
-                        <p className="mt-1 text-[11px] opacity-80">{priority.helper}</p>
-                      </div>
                     </div>
-                    <h3 className="mt-3 text-xl font-semibold">{analysis.problemType}</h3>
-                    <p className="mt-2 text-sm opacity-75">
+                    <h3 className={`mt-3 text-lg font-semibold md:text-xl ${tone.title}`}>{analysis.problemType}</h3>
+                    <p className="mt-1 text-sm text-slate-600">
                       {insight.loja_nome || `Loja ${insight.loja_id ?? "-"}`} - {insight.tag || `Dispositivo ${insight.dispositivo_id ?? "-"}`}
                     </p>
+                    <p className="mt-3 text-sm leading-6 text-slate-700">{compactText(analysis.operationalEvidence, analysis.technicalReason, 260)}</p>
                   </div>
-                  <p className="shrink-0 text-sm opacity-70">{formatDate(insight.created_at)}</p>
-                </div>
-
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-lg border border-white/10 bg-black/10 p-3">
-                    <p className="text-xs opacity-55">Sensor causador</p>
-                    <p className="mt-1 break-words text-sm font-semibold">{analysis.sensor}</p>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-black/10 p-3">
-                    <p className="text-xs opacity-55">Leitura encontrada</p>
-                    <p className="mt-1 text-sm font-semibold">{analysis.currentValueLabel}</p>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-black/10 p-3">
-                    <p className="text-xs opacity-55">Faixa esperada</p>
-                    <p className="mt-1 text-sm font-semibold">{analysis.expectedLabel}</p>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-black/10 p-3">
-                    <p className="text-xs opacity-55">Desvio</p>
-                    <p className="mt-1 text-sm font-semibold">{analysis.deviationLabel}</p>
+                  <div className="rounded-lg border border-white/70 bg-white/70 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold text-slate-600">{priority.label}</span>
+                      <span className="text-xs font-semibold text-slate-500">{priority.scoreText}</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div className={`h-full rounded-full ${priority.bar || tone.bar}`} style={{ width: `${priority.percent}%` }} />
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-500">{priority.helper}</p>
+                    <p className="mt-3 text-xs text-slate-500">{formatDate(insight.created_at)}</p>
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                  <div>
-                    <p className="text-xs opacity-55">Motivo técnico</p>
-                    <p className="mt-2 text-sm leading-6 opacity-90">{compactText(analysis.technicalReason, "-", 230)}</p>
+                  <div className="rounded-lg border border-white/70 bg-white/65 p-3">
+                    <p className="text-xs font-medium text-slate-500">O que olhar primeiro</p>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-800">{compactText(analysis.action, "-", 220)}</p>
                   </div>
-                  <div>
-                    <p className="text-xs opacity-55">Evidência operacional</p>
-                    <p className="mt-2 text-sm leading-6 opacity-90">{compactText(analysis.operationalEvidence, "-", 220)}</p>
+                  <div className="rounded-lg border border-white/70 bg-white/65 p-3">
+                    <p className="text-xs font-medium text-slate-500">Leitura e faixa</p>
+                    <p className="mt-2 text-sm font-semibold text-slate-800">{analysis.currentValueLabel}</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Esperado: {analysis.expectedLabel}</p>
                   </div>
-                  <div>
-                    <p className="text-xs opacity-55">Risco operacional</p>
-                    <p className="mt-2 text-sm leading-6 opacity-90">{compactText(analysis.risk, "-", 220)}</p>
+                  <div className="rounded-lg border border-white/70 bg-white/65 p-3">
+                    <p className="text-xs font-medium text-slate-500">Risco para operação</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">{compactText(analysis.risk, "-", 200)}</p>
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-lg border border-white/10 bg-black/10 p-3">
-                  <p className="text-xs opacity-55">Ação recomendada</p>
-                  <p className="mt-2 text-sm font-semibold leading-6 opacity-95">{compactText(analysis.action, "-", 260)}</p>
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2 text-xs opacity-85">
-                  <span className="rounded-md bg-black/15 px-3 py-2">Regra: {analysis.ruleName}</span>
-                  <span className="rounded-md bg-black/15 px-3 py-2">Tipo: {analysis.equipmentTypeLabel}</span>
-                  <span className="rounded-md bg-black/15 px-3 py-2">Origem: {analysis.originLabel}</span>
-                  <span className="rounded-md bg-black/15 px-3 py-2">Loja: {insight.loja_nome || insight.loja_id || "-"}</span>
-                  <span className="rounded-md bg-black/15 px-3 py-2">Equipamento: {compactText(insight.tag, insight.dispositivo_id ? `Dispositivo ${insight.dispositivo_id}` : "-", 56)}</span>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <InfoTile label="Sensor" value={analysis.sensor} />
+                  <InfoTile label="Desvio" value={analysis.deviationLabel} />
+                  <InfoTile label="Regra" value={analysis.ruleName} />
+                  <InfoTile label="Origem" value={analysis.originLabel} />
                 </div>
               </article>
-          );
-          })
-        ) : !loading ? (
-          <EmptyState text={insights.length ? "Nenhuma ocorrência encontrada com os filtros atuais." : "Nenhuma ocorrência priorizada encontrada."} />
+            );
+            })
+          ) : !loading ? (
+            <EmptyState text={insights.length ? "Nenhuma ocorrência encontrada com os filtros atuais." : "Nenhuma ocorrência priorizada encontrada."} />
+          ) : null}
+        </div>
+
+        {!loading && filteredInsights.length ? (
+          <PaginationBar
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredInsights.length}
+            pageSize={OCCURRENCES_PAGE_SIZE}
+            itemLabel="ocorrências"
+            onPageChange={setPage}
+          />
         ) : null}
-      </div>
+      </Panel>
     </div>
   );
 }
@@ -2578,6 +2692,9 @@ function IntelligentAlertsView({
   const [recipients, setRecipients] = useState<NotificationRecipient[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [alertQuery, setAlertQuery] = useState("");
+  const [alertStatusFilter, setAlertStatusFilter] = useState("all");
+  const [alertPage, setAlertPage] = useState(1);
 
   const connectedPhone = phoneFromWhatsappJid(whatsapp.status?.phone);
   const whatsappConnected = Boolean(whatsapp.status?.connected || status?.whatsapp?.connected);
@@ -2656,6 +2773,43 @@ function IntelligentAlertsView({
   const simulatedCount = rows.filter((item) => item.deliveryStatus.toLowerCase().includes("simulado")).length;
   const failedCount = rows.filter((item) => item.deliveryTone === "danger").length;
   const pendingCount = rows.filter((item) => item.deliveryStatus.toLowerCase().includes("pendente")).length;
+  const alertStatusOptions = [
+    { value: "all", label: "Todos" },
+    { value: "sent", label: "Enviados" },
+    { value: "pending", label: "Pendentes" },
+    { value: "warning", label: "Simulados" },
+    { value: "failed", label: "Erros" },
+  ];
+  const filteredRows = useMemo(() => {
+    const search = alertQuery.trim().toLowerCase();
+    return rows.filter((item) => {
+      const statusMatch =
+        alertStatusFilter === "all" ||
+        (alertStatusFilter === "sent" && item.deliveryTone === "success") ||
+        (alertStatusFilter === "failed" && item.deliveryTone === "danger") ||
+        (alertStatusFilter === "warning" && item.deliveryTone === "warning") ||
+        (alertStatusFilter === "pending" && item.deliveryStatus.toLowerCase().includes("pendente"));
+      if (!statusMatch) return false;
+
+      const text = [
+        item.type,
+        item.unit,
+        item.severity,
+        item.message,
+        item.relevance,
+        item.deliveryStatus,
+        item.recipient,
+      ].join(" ").toLowerCase();
+      return !search || text.includes(search);
+    });
+  }, [alertQuery, alertStatusFilter, rows]);
+  const alertTotalPages = Math.max(1, Math.ceil(filteredRows.length / ALERTS_PAGE_SIZE));
+  const alertCurrentPage = Math.min(alertPage, alertTotalPages);
+  const visibleAlertRows = filteredRows.slice((alertCurrentPage - 1) * ALERTS_PAGE_SIZE, alertCurrentPage * ALERTS_PAGE_SIZE);
+
+  useEffect(() => {
+    setAlertPage(1);
+  }, [alertQuery, alertStatusFilter]);
 
   const StatusIcon = ({ tone }: { tone: IntelligentAlertRow["deliveryTone"] }) => {
     if (tone === "success") return <CheckCircle2 className="h-4 w-4" />;
@@ -2701,36 +2855,83 @@ function IntelligentAlertsView({
           <div>
             <h3 className="text-xl font-semibold">Histórico automático</h3>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Mostra o que foi enviado, o que seria enviado em simulação e por que a mensagem foi considerada relevante.
+              Acompanhe os envios automáticos, o destino e o motivo operacional sem precisar ler uma tabela extensa.
             </p>
           </div>
           <span className="rounded-md border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-800">
-            {rows.length} registros
+            {filteredRows.length} de {rows.length} registros
           </span>
         </div>
 
         {loading && !rows.length ? <div className="mt-5"><LoadingState text="Carregando histórico automático..." /></div> : null}
 
-        <div className="mt-5 grid gap-3 md:hidden">
-          {loading && !rows.length ? null : rows.length ? rows.map((item) => (
-            <article key={`${item.id}-mobile`} className="surface-muted rounded-xl p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-medium text-slate-500">{formatDate(item.generatedAt)}</p>
-                  <h4 className="mt-1 text-base font-semibold text-slate-900">{item.type}</h4>
-                  <p className="mt-1 text-sm text-slate-600">{item.unit}</p>
+        <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(260px,1fr)_auto] lg:items-end">
+          <label className="grid gap-2">
+            <span className="text-xs font-medium text-slate-500">Buscar em todo o histórico</span>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={alertQuery}
+                onChange={(event) => setAlertQuery(event.target.value)}
+                placeholder="Loja, mensagem, destino ou status..."
+                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 outline-none placeholder:text-slate-400"
+              />
+            </div>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {alertStatusOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setAlertStatusFilter(option.value)}
+                className={`rounded-md border px-3 py-2 text-xs font-semibold ${
+                  alertStatusFilter === option.value
+                    ? "border-sky-200 bg-sky-100 text-sky-800"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <PaginationBar
+          currentPage={alertCurrentPage}
+          totalPages={alertTotalPages}
+          totalItems={filteredRows.length}
+          pageSize={ALERTS_PAGE_SIZE}
+          itemLabel="alertas"
+          onPageChange={setAlertPage}
+        />
+
+        <div className="mt-5 grid gap-3">
+          {loading && !rows.length ? null : visibleAlertRows.length ? visibleAlertRows.map((item) => (
+            <article key={item.id} className="surface-muted rounded-xl p-4">
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-semibold ${statusPillClass(item.deliveryTone)}`}>
+                      <StatusIcon tone={item.deliveryTone} />
+                      {item.deliveryStatus}
+                    </span>
+                    <span className="pill-soft rounded-md px-2.5 py-1 text-xs font-semibold">{item.severity}</span>
+                    <span className="pill-soft rounded-md px-2.5 py-1 text-xs">{item.type}</span>
+                  </div>
+                  <h4 className="mt-3 text-base font-semibold text-slate-900">{item.unit}</h4>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">{compactText(item.message, "Mensagem automática registrada.", 360)}</p>
                 </div>
-                <span className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold ${statusPillClass(item.deliveryTone)}`}>
-                  <StatusIcon tone={item.deliveryTone} />
-                  {item.deliveryStatus}
-                </span>
+                <div className="rounded-lg border border-slate-200 bg-white/70 p-3">
+                  <p className="text-xs font-medium text-slate-500">Destino</p>
+                  <p className="mt-1 break-words text-sm font-semibold text-slate-800">{item.recipient}</p>
+                  <p className="mt-3 text-xs font-medium text-slate-500">Data</p>
+                  <p className="mt-1 text-sm text-slate-700">{formatDate(item.generatedAt)}</p>
+                  {item.sentAt ? <p className="mt-2 text-xs text-slate-500">Confirmado em {formatDate(item.sentAt)}</p> : null}
+                </div>
               </div>
-              <p className="mt-3 text-sm leading-6 text-slate-700">{item.message}</p>
-              <p className="mt-3 text-xs leading-5 text-slate-500">{item.relevance}</p>
-              <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                <span className="pill-soft rounded-md px-2.5 py-1">{item.severity}</span>
-                <span className="pill-soft rounded-md px-2.5 py-1">{item.recipient}</span>
-                <span className="pill-soft rounded-md px-2.5 py-1">{item.sentAt ? `Enviado em ${formatDate(item.sentAt)}` : "Sem envio confirmado"}</span>
+              <div className="mt-3 rounded-lg border border-slate-200 bg-white/60 p-3">
+                <p className="text-xs font-medium text-slate-500">Por que entrou no alerta</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{compactText(item.relevance, "Evento avaliado pelo motor automático.", 260)}</p>
               </div>
             </article>
           )) : (
@@ -2738,48 +2939,16 @@ function IntelligentAlertsView({
           )}
         </div>
 
-        <div className="mt-5 hidden overflow-x-auto md:block">
-          {loading && !rows.length ? null : rows.length ? (
-            <table className="w-full min-w-[1100px] border-separate border-spacing-y-2 text-left text-sm">
-              <thead>
-                <tr className="text-xs font-semibold text-slate-500">
-                  <th className="px-3 py-2">Data e hora</th>
-                  <th className="px-3 py-2">Tipo</th>
-                  <th className="px-3 py-2">Unidade/local</th>
-                  <th className="px-3 py-2">Prioridade</th>
-                  <th className="px-3 py-2">Mensagem gerada</th>
-                  <th className="px-3 py-2">Motivo da relevância</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Destino</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((item) => (
-                  <tr key={item.id} className="surface-muted align-top">
-                    <td className="rounded-l-xl px-3 py-4 text-slate-600">{formatDate(item.generatedAt)}</td>
-                    <td className="px-3 py-4 font-semibold text-slate-800">{item.type}</td>
-                    <td className="px-3 py-4 text-slate-700">{item.unit}</td>
-                    <td className="px-3 py-4">
-                      <span className="pill-soft rounded-md px-2.5 py-1 text-xs font-semibold">{item.severity}</span>
-                    </td>
-                    <td className="max-w-[280px] px-3 py-4 leading-6 text-slate-700">{item.message}</td>
-                    <td className="max-w-[260px] px-3 py-4 leading-6 text-slate-600">{item.relevance}</td>
-                    <td className="px-3 py-4">
-                      <span className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-semibold ${statusPillClass(item.deliveryTone)}`}>
-                        <StatusIcon tone={item.deliveryTone} />
-                        {item.deliveryStatus}
-                      </span>
-                      {item.sentAt ? <p className="mt-2 text-xs text-slate-500">{formatDate(item.sentAt)}</p> : null}
-                    </td>
-                    <td className="rounded-r-xl px-3 py-4 text-slate-600">{item.recipient}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <EmptyState text="Nenhum alerta relevante encontrado no recorte atual." />
-          )}
-        </div>
+        {!loading && filteredRows.length ? (
+          <PaginationBar
+            currentPage={alertCurrentPage}
+            totalPages={alertTotalPages}
+            totalItems={filteredRows.length}
+            pageSize={ALERTS_PAGE_SIZE}
+            itemLabel="alertas"
+            onPageChange={setAlertPage}
+          />
+        ) : null}
       </Panel>
     </div>
   );
