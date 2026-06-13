@@ -4039,7 +4039,7 @@ export default function HomePage() {
             }}
           />
 
-          <section className="min-w-0 flex-1 px-2 pb-24 pt-3 sm:px-4 md:px-5 lg:px-6 lg:pb-6 lg:pt-4">
+          <section className="app-main-content flex-1 px-2 pb-24 pt-3 sm:px-4 md:px-5 lg:px-6 lg:pb-6 lg:pt-4">
             <div key={activeView} className="app-content-view flex w-full min-w-0 flex-col gap-4">
               {overviewState.error ? <ErrorBanner message={overviewState.error} /> : null}
               {insightsState.error && activeView === "alertas" ? (

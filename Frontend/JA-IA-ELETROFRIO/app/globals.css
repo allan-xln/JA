@@ -173,10 +173,24 @@ body {
 }
 
 .app-shell-grid {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
   transition: grid-template-columns 360ms cubic-bezier(0.2, 0.9, 0.18, 1);
 }
 
+.app-main-content {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  margin-inline: 0;
+}
+
 .app-content-view {
+  width: 100%;
+  min-width: 0;
+  max-width: none !important;
+  margin-inline: 0 !important;
   animation: view-enter 300ms cubic-bezier(0.2, 0.9, 0.18, 1) both;
 }
 
