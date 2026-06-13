@@ -9,7 +9,7 @@ services:
       ELETROFRIO_START_INTERNAL_SCHEDULER: "false"
       WHATSAPP_SERVICE_URL: http://whatsapp:8091
       ELETROFRIO_API_URL: http://api:8000
-      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://eletrofrio.147.15.56.49.nip.io}
     command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "${API_PORT:-8000}:8000"
@@ -36,7 +36,7 @@ services:
       ELETROFRIO_START_INTERNAL_SCHEDULER: "false"
       WHATSAPP_SERVICE_URL: http://whatsapp:8091
       ELETROFRIO_API_URL: http://api:8000
-      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://eletrofrio.147.15.56.49.nip.io}
     command: ["python", "-m", "api.scheduler"]
     depends_on:
       api:
@@ -60,6 +60,7 @@ services:
       WHATSAPP_PORT: "8091"
       WHATSAPP_SESSION_DIR: /app/sessions/eletrofrio
       ELETROFRIO_API_URL: http://api:8000
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://eletrofrio.147.15.56.49.nip.io}
     ports:
       - "${WHATSAPP_PORT:-8091}:8091"
     healthcheck:

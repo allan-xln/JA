@@ -106,9 +106,22 @@ async function resolveRecipientJid(sock: WASocket, phone: string) {
   return candidateJids[0];
 }
 
+function formatOutgoingMessage(message: string) {
+  const text = message.trim();
+  if (!text) return "";
+  if (text.includes(config.appPublicUrl)) return text;
+
+  return [
+    text,
+    "",
+    "Mais detalhes no portal:",
+    config.appPublicUrl,
+  ].join("\n");
+}
+
 export async function sendWhatsAppMessage(phone: string, message: string) {
   const fallbackJid = normalizeBrazilianPhone(phone);
-  const text = message.trim();
+  const text = formatOutgoingMessage(message);
   if (!text) throw new Error("Mensagem vazia.");
 
   if (!recipientAllowed(phone)) {

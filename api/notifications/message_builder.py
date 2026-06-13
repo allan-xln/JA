@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+DEFAULT_PORTAL_URL = "https://eletrofrio.147.15.56.49.nip.io"
+
 
 def _clean(value: Any, fallback: str = "-") -> str:
     text = " ".join(str(value or "").split())
@@ -39,6 +41,11 @@ def priority_label(severity: Any) -> str:
     return "Informativa"
 
 
+def portal_footer(panel_url: str = "") -> str:
+    url = (panel_url or DEFAULT_PORTAL_URL).rstrip("/")
+    return f"Mais detalhes no portal:\n{url}"
+
+
 def problem_label(item: dict[str, Any]) -> str:
     text = _clean(item.get("message") or item.get("summary") or item.get("title"), "")
     lowered = text.casefold()
@@ -73,22 +80,25 @@ def equipment_label(item: dict[str, Any]) -> str:
     return _clean(item.get("tag") or (f"Dispositivo {device_id}" if device_id else None))
 
 
-def build_single_message(item: dict[str, Any]) -> str:
+def build_single_message(item: dict[str, Any], panel_url: str = "") -> str:
     action = item.get("recommended_action") or "validar sensor, porta, carga térmica e condição do sistema de refrigeração."
     return "\n".join(
         [
-            "Ocorrência crítica detectada",
+            "🔔 Alerta Eletrofrio",
+            f"Prioridade: {priority_label(item.get('severity'))}",
             "",
             f"Loja: {store_label(item)}",
             f"Equipamento: {equipment_label(item)}",
-            f"Problema: {problem_label(item)}",
-            f"Leitura: {_format_value(item.get('value'))}",
-            f"Faixa esperada: {_expected_range_label(item.get('expected_range'))}",
-            f"Prioridade: {priority_label(item.get('severity'))}",
             "",
-            f"Ação inicial: {_clean(action)}",
+            f"Situação: {problem_label(item)}",
+            f"Leitura: {_format_value(item.get('value'))} | esperado: {_expected_range_label(item.get('expected_range'))}",
             "",
-            "Obs.: causa raiz não confirmada automaticamente.",
+            "Próximo passo:",
+            _clean(action),
+            "",
+            "Obs.: diagnóstico inicial; confirme a condição no local antes de acionar manutenção.",
+            "",
+            portal_footer(panel_url),
         ]
     )
 
@@ -96,22 +106,28 @@ def build_single_message(item: dict[str, Any]) -> str:
 def build_group_message(items: list[dict[str, Any]], panel_url: str = "") -> str:
     selected = items[:5]
     lines = [
-        "Resumo operacional Eletrofrio",
+        "🔔 Resumo operacional Eletrofrio",
         "",
-        f"Foram encontradas {len(items)} ocorrências relevantes.",
+        f"{len(items)} ocorrências relevantes passaram pelos filtros de prioridade.",
+        "Principais pontos:",
         "",
     ]
     for index, item in enumerate(selected, 1):
         lines.extend(
             [
                 f"{index}. {item_title(item)}",
-                f"{problem_label(item)} Prioridade {priority_label(item.get('severity')).casefold()}.",
+                f"{problem_label(item)}",
+                f"Prioridade: {priority_label(item.get('severity'))}.",
                 "",
             ]
         )
-    lines.append("Acesse o painel para detalhes.")
-    if panel_url:
-        lines.append(panel_url)
+    lines.extend(
+        [
+            "Confira o painel antes de acionar manutenção ou visita técnica.",
+            "",
+            portal_footer(panel_url),
+        ]
+    )
     return "\n".join(lines).strip()
 
 

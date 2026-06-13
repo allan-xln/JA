@@ -1707,7 +1707,7 @@ function AssistantView({ embedded = false }: { embedded?: boolean }) {
 function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; canManage: boolean }) {
   const [phone, setPhone] = useState("");
   const [testMessage, setTestMessage] = useState(
-    "Validação do canal operacional Eletrofrio."
+    "✅ Canal Eletrofrio ativo. Você está pronto para receber métricas e alertas operacionais por aqui."
   );
   const [localError, setLocalError] = useState<string | null>(null);
   const [communicationSearch, setCommunicationSearch] = useState("");
@@ -1913,7 +1913,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
       setNotificationMessage(null);
       const result = await eletrofrioApi.notificationTest({
         recipient_id: recipient.id,
-        message: "Você está pronto para receber métricas inteligentes no WhatsApp.",
+        message: "✅ Canal Eletrofrio ativo.\n\nVocê está pronto para receber métricas e alertas operacionais por aqui.",
         dry_run: false,
       });
       const status = typeof result.status === "string" ? result.status : "";

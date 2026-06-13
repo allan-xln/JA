@@ -51,7 +51,7 @@ class Settings:
     whatsapp_alert_to: str = os.getenv("WHATSAPP_ALERT_TO", os.getenv("WHATSAPP_ALLOWED_RECIPIENTS", ""))
     whatsapp_alert_cooldown_minutes: int = int(os.getenv("WHATSAPP_ALERT_COOLDOWN_MINUTES", "60"))
     whatsapp_dry_run: bool = _bool_env("WHATSAPP_DRY_RUN", True)
-    app_public_url: str = os.getenv("APP_PUBLIC_URL", "http://localhost:3000").rstrip("/")
+    app_public_url: str = os.getenv("APP_PUBLIC_URL", "https://eletrofrio.147.15.56.49.nip.io").rstrip("/")
     auto_open_tickets: bool = _bool_env("AUTO_OPEN_TICKETS", False)
     http_timeout_seconds: int = int(os.getenv("HTTP_TIMEOUT_SECONDS", "30"))
     eletrofrio_timeout_seconds: int = int(os.getenv("ELETROFRIO_TIMEOUT_SECONDS", "20"))

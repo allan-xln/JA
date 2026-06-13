@@ -14,7 +14,7 @@ from api.communications import log_communication
 from api.config import settings
 from api.database import SupabaseError, supabase
 from api.logger import logger
-from api.notifications.message_builder import build_group_message, build_single_message, preview
+from api.notifications.message_builder import build_group_message, build_single_message, portal_footer, preview
 from api.notifications.notification_rules import local_relevance, severity_rank
 from api.repositories import filter_rows_by_scope, list_anomalies, list_insights, utc_now_iso
 
@@ -25,10 +25,18 @@ NOTIFICATION_SCHEMA_MESSAGE = (
 _logged_notification_schema_warnings: set[str] = set()
 
 AI_NOTIFICATION_SYSTEM_PROMPT = (
-    "Você é um assistente operacional de refrigeração da Eletrofrio. "
-    "Reescreva alertas para WhatsApp com clareza, sem inventar causa raiz, valores, lojas ou sensores. "
-    "Use apenas os dados recebidos. Seja curto, profissional e acionável."
+    "Você escreve como operador de refrigeração da Eletrofrio, de forma clara e direta para WhatsApp. "
+    "Não diga que é IA e não invente causa raiz, valores, lojas ou sensores. "
+    "Use poucos emojis, organize em linhas curtas e mantenha tom profissional e amigável."
 )
+
+
+def _with_portal_footer(message: str) -> str:
+    text = str(message or "").strip()
+    footer = portal_footer(settings.app_public_url)
+    if settings.app_public_url in text:
+        return text
+    return f"{text}\n\n{footer}".strip()
 
 
 def _clamp_cooldown_minutes(value: Any) -> int:
@@ -275,6 +283,8 @@ def _enrich_message_with_ai(rows: list[dict[str, Any]], local_message: str) -> t
                             "Se houver várias ocorrências, agrupar em resumo com até 5 itens.",
                             "Manter no máximo 1200 caracteres.",
                             "Incluir ação inicial objetiva.",
+                            "Nao falar que a mensagem foi feita por IA.",
+                            f"Incluir o link do portal quando couber: {settings.app_public_url}",
                         ],
                         "local_message": local_message,
                         "items": [_compact_item_for_ai(row) for row in rows[:5]],
@@ -300,7 +310,7 @@ def _enrich_message_with_ai(rows: list[dict[str, Any]], local_message: str) -> t
         message = str(parsed.get("message") or parsed.get("answer") or "").strip()
         if not message:
             return local_message, False, "empty_ai_message"
-        return message[:1400], True, None
+        return _with_portal_footer(message[:1400]), True, None
     except Exception as exc:
         logger.warning("Falha ao enriquecer notificação com IA; usando template local: %s", exc)
         return local_message, False, str(exc)[:240]
@@ -571,7 +581,7 @@ def send_test_notification(payload: dict[str, Any], scope: TenantScope | None = 
     phone = _normalize_recipient_phone(phone)
 
     recipient = {**recipient, "phone": phone, "channel": recipient.get("channel") or "whatsapp"}
-    message = str(payload.get("message") or "Teste de notificação operacional Eletrofrio.").strip()
+    message = _with_portal_footer(str(payload.get("message") or "Teste de notificação operacional Eletrofrio.").strip())
     item = {
         "source_kind": "test",
         "source_id": _hash(["test", phone, datetime.now(timezone.utc).isoformat(timespec="seconds")]),
@@ -647,7 +657,7 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
             continue
         if not item.get("customer_id"):
             skipped += 1
-            _insert_event(item, None, "skipped", build_single_message(item), skip_reason="missing_customer")
+            _insert_event(item, None, "skipped", build_single_message(item, settings.app_public_url), skip_reason="missing_customer")
             continue
 
         matching = [
@@ -659,21 +669,21 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
         ]
         if not matching:
             skipped += 1
-            _insert_event(item, None, "skipped", build_single_message(item), skip_reason="no_recipient")
+            _insert_event(item, None, "skipped", build_single_message(item, settings.app_public_url), skip_reason="no_recipient")
             continue
 
         for recipient in matching:
             if _recipient_in_cooldown(recipient, include_dry_run=effective_dry_run):
                 skipped += 1
-                _insert_event(item, recipient, "skipped", build_single_message(item), skip_reason="recipient_cooldown")
+                _insert_event(item, recipient, "skipped", build_single_message(item, settings.app_public_url), skip_reason="recipient_cooldown")
                 continue
             if severity_rank(item.get("severity")) >= 4 and not recipient.get("receive_critical", True):
                 skipped += 1
-                _insert_event(item, recipient, "skipped", build_single_message(item), skip_reason="recipient_critical_disabled")
+                _insert_event(item, recipient, "skipped", build_single_message(item, settings.app_public_url), skip_reason="recipient_critical_disabled")
                 continue
             if severity_rank(item.get("severity")) < 4 and not recipient.get("receive_warning_recurrent", True):
                 skipped += 1
-                _insert_event(item, recipient, "skipped", build_single_message(item), skip_reason="recipient_warning_disabled")
+                _insert_event(item, recipient, "skipped", build_single_message(item, settings.app_public_url), skip_reason="recipient_warning_disabled")
                 continue
             notification_hash = _notification_hash(item, recipient)
             if _event_exists(notification_hash, include_dry_run=effective_dry_run):
@@ -691,18 +701,19 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
             recipient = recipient_by_id[recipient_key]
             for item in rows:
                 skipped += 1
-                _insert_event(item, recipient, "skipped", build_single_message(item), skip_reason="whatsapp_disconnected")
+                _insert_event(item, recipient, "skipped", build_single_message(item, settings.app_public_url), skip_reason="whatsapp_disconnected")
         selected_by_recipient.clear()
 
     for recipient_key, rows in selected_by_recipient.items():
         recipient = recipient_by_id[recipient_key]
         rows = sorted(rows, key=lambda item: severity_rank(item.get("severity")), reverse=True)[:5]
-        message = build_group_message(rows, settings.app_public_url) if len(rows) > 1 else build_single_message(rows[0])
+        message = build_group_message(rows, settings.app_public_url) if len(rows) > 1 else build_single_message(rows[0], settings.app_public_url)
         if _should_enrich_with_ai(rows, ai_calls_used):
             ai_calls_used += 1
             message, used_ai, _ai_warning = _enrich_message_with_ai(rows, message)
             if used_ai:
                 ai_enriched += len(rows)
+        message = _with_portal_footer(message)
         status, error, provider_id = ("dry_run", None, None) if effective_dry_run else _send_message(recipient, message)
         if status == "sent":
             sent += len(rows)

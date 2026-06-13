@@ -68,18 +68,23 @@ def _format_message(anomaly: dict[str, Any]) -> str:
 
     return "\n".join(
         [
-            "Ocorrência operacional Eletrofrio",
-            "",
+            "🔔 Alerta Eletrofrio",
             f"Prioridade: {anomaly.get('severity')}",
+            "",
             f"Loja: {store}",
             f"Equipamento: {equipment}",
-            f"Tipo: {anomaly.get('type')}",
-            f"Valor atual: {_format_value(anomaly.get('value'))}",
-            f"Faixa esperada: {expected_label}",
-            f"Horario: {_format_dt(anomaly.get('detected_at'))}",
             "",
-            f"Ação recomendada: {anomaly.get('message') or 'Verifique o equipamento no painel operacional.'}",
-            f"Painel: {settings.app_public_url}",
+            f"Situação: {anomaly.get('type')}",
+            f"Leitura: {_format_value(anomaly.get('value'))} | esperado: {expected_label}",
+            f"Horário: {_format_dt(anomaly.get('detected_at'))}",
+            "",
+            "Próximo passo:",
+            anomaly.get("message") or "Verifique o equipamento no painel operacional.",
+            "",
+            "Obs.: diagnóstico inicial; confirme a condição no local antes de acionar manutenção.",
+            "",
+            "Mais detalhes no portal:",
+            settings.app_public_url,
         ]
     )
 
