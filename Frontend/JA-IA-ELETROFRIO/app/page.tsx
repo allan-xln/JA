@@ -3045,6 +3045,42 @@ function ruleSearchText(rule: OperationalRule) {
   ].join(" ").toLowerCase();
 }
 
+function hasRuleTextPattern(rule: OperationalRule) {
+  return Boolean(rule.alarm_text_pattern?.trim());
+}
+
+function ruleValidationIssue(rule: OperationalRule) {
+  if (!rule.name?.trim()) return "Nome obrigatório.";
+  if (!["info", "warning", "critical"].includes(rule.severity_when_triggered)) return "Severidade inválida.";
+
+  if (rule.scope_type !== "global" && rule.scope_type !== "alarm_group") {
+    const hasScopeValue = Boolean(rule.scope_value?.trim());
+    const hasTypedScope =
+      rule.scope_type === "equipment_type"
+        ? Boolean(rule.equipment_type || rule.scope_value)
+        : rule.scope_type === "measurement_type"
+          ? Boolean(rule.measurement_type || rule.scope_value)
+          : hasScopeValue;
+    if (!hasTypedScope) return "Escopo sem valor definido.";
+  }
+
+  if (rule.condition_type === "contains_text" && !hasRuleTextPattern(rule)) return "Texto do alarme obrigatório.";
+  if (rule.condition_type === "above" && rule.threshold_max == null && !hasRuleTextPattern(rule)) return "Informe limite máximo ou padrão de alarme.";
+  if (rule.condition_type === "below" && rule.threshold_min == null && !hasRuleTextPattern(rule)) return "Informe limite mínimo ou padrão de alarme.";
+  if (rule.condition_type === "outside_range" && rule.threshold_min == null && rule.threshold_max == null && !hasRuleTextPattern(rule)) return "Informe ao menos um limite da faixa.";
+  if (rule.condition_type === "repeated_event") {
+    if (!rule.recurrence_count || rule.recurrence_count < 2) return "Recorrência precisa de pelo menos 2 eventos.";
+    if (!rule.recurrence_window_minutes || rule.recurrence_window_minutes < 1) return "Janela da recorrência inválida.";
+  }
+  if (rule.condition_type === "missing_telemetry") return null;
+  if (!["above", "below", "outside_range", "contains_text", "repeated_event", "missing_telemetry"].includes(rule.condition_type)) return "Condição ainda não suportada pelo motor.";
+  return null;
+}
+
+function isRuleFunctional(rule: OperationalRule) {
+  return rule.enabled && !ruleValidationIssue(rule);
+}
+
 function RulesView({ canManage }: { canManage: boolean }) {
   const [rules, setRules] = useState<OperationalRule[]>([]);
   const [evaluations, setEvaluations] = useState<RuleEvaluation[]>([]);
@@ -3066,10 +3102,12 @@ function RulesView({ canManage }: { canManage: boolean }) {
       setRules(rulesResult.items);
       setEvaluations(evaluationsResult.items);
       setSchemaMessage(rulesResult.message || evaluationsResult.message || null);
+      const firstFunctionalRule = rulesResult.items.find(isRuleFunctional) || rulesResult.items.find((item) => !ruleValidationIssue(item)) || rulesResult.items[0] || null;
       if (!selectedRule && rulesResult.items.length) {
-        setSelectedRule(rulesResult.items[0]);
+        setSelectedRule(firstFunctionalRule);
       } else if (selectedRule && !isDraftRule(selectedRule)) {
-        setSelectedRule(rulesResult.items.find((item) => item.id === selectedRule.id) || rulesResult.items[0] || null);
+        const updatedSelection = rulesResult.items.find((item) => item.id === selectedRule.id);
+        setSelectedRule(updatedSelection && isRuleFunctional(updatedSelection) ? updatedSelection : firstFunctionalRule);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível carregar regras operacionais.");
@@ -3083,16 +3121,20 @@ function RulesView({ canManage }: { canManage: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const functionalRules = useMemo(() => rules.filter(isRuleFunctional), [rules]);
+  const hiddenRulesCount = rules.length - functionalRules.length;
+
   const filteredRules = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
-    if (!normalizedSearch) return rules;
-    return rules.filter((rule) => ruleSearchText(rule).includes(normalizedSearch));
-  }, [rules, search]);
+    if (!normalizedSearch) return functionalRules;
+    return functionalRules.filter((rule) => ruleSearchText(rule).includes(normalizedSearch));
+  }, [functionalRules, search]);
 
-  const activeRules = rules.filter((rule) => rule.enabled).length;
-  const criticalRules = rules.filter((rule) => rule.severity_when_triggered === "critical").length;
+  const activeRules = functionalRules.length;
+  const criticalRules = functionalRules.filter((rule) => rule.severity_when_triggered === "critical").length;
   const latestEvaluation = evaluations[0];
   const draftMode = isDraftRule(selectedRule);
+  const selectedRuleIssue = selectedRule ? ruleValidationIssue(selectedRule) : null;
 
   const updateSelectedRule = (patch: Partial<OperationalRule>) => {
     setSelectedRule((current) => (current ? { ...current, ...patch } : current));
@@ -3168,6 +3210,11 @@ function RulesView({ canManage }: { canManage: boolean }) {
       setError("Informe o texto ou padrão do alarme para essa condição.");
       return;
     }
+    const validationIssue = ruleValidationIssue(selectedRule);
+    if (validationIssue) {
+      setError(`Corrija a regra antes de salvar: ${validationIssue}`);
+      return;
+    }
     try {
       setBusy(true);
       setError(null);
@@ -3217,9 +3264,12 @@ function RulesView({ canManage }: { canManage: boolean }) {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Regras Operacionais</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Mostra apenas regras ativas e validadas pelo motor. Configurações incompletas ficam fora da lista principal para não confundir a operação.
+            </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-3 xl:min-w-[520px]">
-            <InfoTile label="Ativas" value={`${activeRules}/${rules.length}`} />
+            <InfoTile label="Validadas" value={`${activeRules}/${rules.length}`} />
             <InfoTile label="Críticas" value={criticalRules} />
             <InfoTile label="Última avaliação" value={latestEvaluation ? formatDate(latestEvaluation.evaluated_at) : "-"} />
           </div>
@@ -3229,34 +3279,39 @@ function RulesView({ canManage }: { canManage: boolean }) {
       {schemaMessage ? <ErrorBanner message={schemaMessage} /> : null}
       {error ? <ErrorBanner message={error} /> : null}
       {message ? <div className="rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-4 text-sm text-emerald-100">{message}</div> : null}
+      {hiddenRulesCount ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {hiddenRulesCount} regra(s) inativas ou incompletas foram ocultadas da lista principal.
+        </div>
+      ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.15fr)]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(340px,420px)_minmax(0,1fr)]">
         <Panel>
           <div className="flex flex-col gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-white/45">Regras aplicadas</p>
-              <h3 className="mt-2 text-xl font-semibold">{filteredRules.length} na lista</h3>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Regras prontas para uso</p>
+              <h3 className="mt-2 text-xl font-semibold text-slate-900">{filteredRules.length} na lista</h3>
             </div>
-            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2">
-              <Search className="h-4 w-4 text-white/35" />
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <Search className="h-4 w-4 text-slate-400" />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Buscar por nome, loja, ativo ou alarme..."
-                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none"
+                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 outline-none placeholder:text-slate-400"
               />
             </div>
             {canManage ? (
               <div className="grid gap-2 sm:grid-cols-3">
-                <button disabled={busy} onClick={startNewRule} className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.055] px-3 py-3 text-sm font-semibold text-white/80 disabled:opacity-60">
+                <button disabled={busy} onClick={startNewRule} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-700 disabled:opacity-60">
                   <Plus className="h-4 w-4" />
                   Nova
                 </button>
-                <button disabled={busy} onClick={() => void applyDefaults()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-3 py-3 text-sm font-semibold text-sky-100 disabled:opacity-60">
+                <button disabled={busy} onClick={() => void applyDefaults()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sm font-semibold text-sky-800 disabled:opacity-60">
                   <ShieldCheck className="h-4 w-4" />
                   Sugeridas
                 </button>
-                <button disabled={busy} onClick={() => void evaluateRules()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-3 text-sm font-semibold text-emerald-100 disabled:opacity-60">
+                <button disabled={busy} onClick={() => void evaluateRules()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-semibold text-emerald-800 disabled:opacity-60">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   Reavaliar
                 </button>
@@ -3264,80 +3319,83 @@ function RulesView({ canManage }: { canManage: boolean }) {
             ) : null}
           </div>
 
-          <div className="mt-5 grid max-h-[620px] gap-2 overflow-auto pr-1">
+          <div className="mt-5 grid max-h-[70vh] gap-2 overflow-auto pr-1">
             {filteredRules.map((rule) => (
               <button
                 key={rule.id}
                 type="button"
                 onClick={() => setSelectedRule(rule)}
                 className={`rounded-xl border p-3 text-left transition ${
-                  selectedRule?.id === rule.id ? "border-sky-300/45 bg-sky-300/10" : "border-white/10 bg-white/[0.035] hover:border-white/20"
+                  selectedRule?.id === rule.id ? "border-sky-200 bg-sky-50" : "border-slate-200 bg-white hover:border-slate-300"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold">{rule.name}</p>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/55">{rule.description || rule.explanation_template || "Sem descrição."}</p>
+                    <p className="truncate font-semibold text-slate-900">{rule.name}</p>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{rule.description || rule.explanation_template || "Sem descrição."}</p>
                   </div>
-                  <span className={`shrink-0 rounded-md px-2 py-1 text-xs ${rule.enabled ? "bg-emerald-400/10 text-emerald-200" : "bg-white/[0.06] text-slate-400"}`}>
-                    {rule.enabled ? "ativa" : "inativa"}
+                  <span className="shrink-0 rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                    validada
                   </span>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/65">
-                  <span className="rounded-md bg-black/15 px-2 py-1">{severityLabel(rule.severity_when_triggered)}</span>
-                  <span className="rounded-md bg-black/15 px-2 py-1">{ruleConditionLabel(rule.condition_type)}</span>
-                  <span className="rounded-md bg-black/15 px-2 py-1">{ruleScopeLabel(rule)}</span>
-                  <span className="rounded-md bg-black/15 px-2 py-1">{ruleLimitLabel(rule)}</span>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                  <span className="rounded-md bg-slate-100 px-2 py-1">{severityLabel(rule.severity_when_triggered)}</span>
+                  <span className="rounded-md bg-slate-100 px-2 py-1">{ruleConditionLabel(rule.condition_type)}</span>
+                  <span className="rounded-md bg-slate-100 px-2 py-1">{ruleScopeLabel(rule)}</span>
+                  <span className="rounded-md bg-slate-100 px-2 py-1">{ruleLimitLabel(rule)}</span>
                 </div>
               </button>
             ))}
-            {!filteredRules.length && <EmptyState text={busy ? "Carregando regras operacionais." : "Nenhuma regra encontrada."} />}
+            {!filteredRules.length && <EmptyState text={busy ? "Carregando regras operacionais." : "Nenhuma regra ativa e validada encontrada."} />}
           </div>
         </Panel>
 
         <Panel>
           {selectedRule ? (
             <div className="mt-4 grid gap-4">
-              <div className="flex flex-col gap-3 border-b border-white/10 pb-4 md:flex-row md:items-start md:justify-between">
+              <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 md:flex-row md:items-start md:justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/45">{draftMode ? "Nova regra" : "Editar regra"}</p>
-                  <h3 className="mt-2 text-xl font-semibold">{selectedRule.name || "Regra operacional"}</h3>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{draftMode ? "Nova regra" : "Regra validada"}</p>
+                  <h3 className="mt-2 text-xl font-semibold text-slate-900">{selectedRule.name || "Regra operacional"}</h3>
+                  <div className={`mt-3 inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${selectedRuleIssue ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
+                    {selectedRuleIssue ? selectedRuleIssue : "Pronta para uso no motor"}
+                  </div>
                 </div>
                 {canManage ? <div className="flex flex-wrap gap-2">
-                  <button disabled={busy} onClick={() => void toggleRule(selectedRule)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold disabled:opacity-60 ${selectedRule.enabled ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/[0.055] text-white/70"}`}>
+                  <button disabled={busy} onClick={() => void toggleRule(selectedRule)} className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold disabled:opacity-60 ${selectedRule.enabled ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
                     <Power className="h-4 w-4" />
                     {selectedRule.enabled ? "Ativa" : "Inativa"}
                   </button>
-                  <button disabled={busy} onClick={() => void saveSelectedRule()} className="inline-flex items-center gap-2 rounded-xl border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-sm font-semibold text-sky-100 disabled:opacity-60">
+                  <button disabled={busy} onClick={() => void saveSelectedRule()} className="inline-flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-800 disabled:opacity-60">
                     <Save className="h-4 w-4" />
                     Salvar
                   </button>
-                  <button disabled={busy} onClick={() => void deleteSelectedRule()} className="inline-flex items-center gap-2 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm font-semibold text-red-100 disabled:opacity-60">
+                  <button disabled={busy} onClick={() => void deleteSelectedRule()} className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-60">
                     <Trash2 className="h-4 w-4" />
                     Excluir
                   </button>
                 </div> : null}
               </div>
               <label className="grid gap-2">
-                <span className="text-sm text-white/60">Nome</span>
-                <input value={selectedRule.name} onChange={(event) => updateSelectedRule({ name: event.target.value })} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                <span className="text-sm text-slate-600">Nome</span>
+                <input value={selectedRule.name} onChange={(event) => updateSelectedRule({ name: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300" />
               </label>
               <label className="grid gap-2">
-                <span className="text-sm text-white/60">Descrição curta</span>
-                <textarea rows={2} value={selectedRule.description || ""} onChange={(event) => updateSelectedRule({ description: event.target.value })} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                <span className="text-sm text-slate-600">Descrição curta</span>
+                <textarea rows={2} value={selectedRule.description || ""} onChange={(event) => updateSelectedRule({ description: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300" />
               </label>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Severidade</span>
-                  <select value={selectedRule.severity_when_triggered} onChange={(event) => updateSelectedRule({ severity_when_triggered: event.target.value })} className="rounded-xl border border-white/10 bg-[#0d141d] px-4 py-3 text-sm">
+                  <span className="text-sm text-slate-600">Severidade</span>
+                  <select value={selectedRule.severity_when_triggered} onChange={(event) => updateSelectedRule({ severity_when_triggered: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300">
                     <option value="info">Informativo</option>
                     <option value="warning">Atenção</option>
                     <option value="critical">Crítico</option>
                   </select>
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Condição</span>
-                  <select value={selectedRule.condition_type} onChange={(event) => updateSelectedRule({ condition_type: event.target.value })} className="rounded-xl border border-white/10 bg-[#0d141d] px-4 py-3 text-sm">
+                  <span className="text-sm text-slate-600">Condição</span>
+                  <select value={selectedRule.condition_type} onChange={(event) => updateSelectedRule({ condition_type: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300">
                     <option value="above">Acima de</option>
                     <option value="below">Abaixo de</option>
                     <option value="outside_range">Fora da faixa</option>
@@ -3349,8 +3407,8 @@ function RulesView({ canManage }: { canManage: boolean }) {
               </div>
               <div className="grid gap-3 md:grid-cols-3">
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Escopo</span>
-                  <select value={selectedRule.scope_type} onChange={(event) => updateSelectedRule({ scope_type: event.target.value })} className="rounded-xl border border-white/10 bg-[#0d141d] px-4 py-3 text-sm">
+                  <span className="text-sm text-slate-600">Escopo</span>
+                  <select value={selectedRule.scope_type} onChange={(event) => updateSelectedRule({ scope_type: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300">
                     <option value="global">Global</option>
                     <option value="equipment_type">Tipo de ativo</option>
                     <option value="alarm_group">Grupo de alarme</option>
@@ -3359,44 +3417,44 @@ function RulesView({ canManage }: { canManage: boolean }) {
                   </select>
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Valor do escopo</span>
-                  <input value={selectedRule.scope_value || ""} onChange={(event) => updateSelectedRule({ scope_value: event.target.value || null })} placeholder="Ex.: frozen, compressor, 315" className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                  <span className="text-sm text-slate-600">Valor do escopo</span>
+                  <input value={selectedRule.scope_value || ""} onChange={(event) => updateSelectedRule({ scope_value: event.target.value || null })} placeholder="Ex.: frozen, compressor, 315" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-sky-300" />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Ordem de atendimento</span>
-                  <input type="number" value={selectedRule.priority} onChange={(event) => updateSelectedRule({ priority: Number(event.target.value) || 100 })} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
-                  <span className="text-xs text-white/40">Número menor entra antes na fila de avaliação. Ex.: 5 antes de 50.</span>
+                  <span className="text-sm text-slate-600">Ordem de atendimento</span>
+                  <input type="number" value={selectedRule.priority} onChange={(event) => updateSelectedRule({ priority: Number(event.target.value) || 100 })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300" />
+                  <span className="text-xs text-slate-500">Número menor entra antes na fila de avaliação. Ex.: 5 antes de 50.</span>
                 </label>
               </div>
               <div className="grid gap-3 md:grid-cols-4">
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Limite mínimo</span>
-                  <input type="number" value={selectedRule.threshold_min ?? ""} onChange={(event) => updateSelectedRule({ threshold_min: event.target.value === "" ? null : Number(event.target.value) })} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                  <span className="text-sm text-slate-600">Limite mínimo</span>
+                  <input type="number" value={selectedRule.threshold_min ?? ""} onChange={(event) => updateSelectedRule({ threshold_min: event.target.value === "" ? null : Number(event.target.value) })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300" />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Limite máximo</span>
-                  <input type="number" value={selectedRule.threshold_max ?? ""} onChange={(event) => updateSelectedRule({ threshold_max: event.target.value === "" ? null : Number(event.target.value) })} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                  <span className="text-sm text-slate-600">Limite máximo</span>
+                  <input type="number" value={selectedRule.threshold_max ?? ""} onChange={(event) => updateSelectedRule({ threshold_max: event.target.value === "" ? null : Number(event.target.value) })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300" />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Recorrência</span>
-                  <input type="number" value={selectedRule.recurrence_count ?? ""} onChange={(event) => updateSelectedRule({ recurrence_count: event.target.value === "" ? null : Number(event.target.value) })} placeholder="3" className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                  <span className="text-sm text-slate-600">Recorrência</span>
+                  <input type="number" value={selectedRule.recurrence_count ?? ""} onChange={(event) => updateSelectedRule({ recurrence_count: event.target.value === "" ? null : Number(event.target.value) })} placeholder="3" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-sky-300" />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-sm text-white/60">Janela min.</span>
-                  <input type="number" value={selectedRule.recurrence_window_minutes ?? ""} onChange={(event) => updateSelectedRule({ recurrence_window_minutes: event.target.value === "" ? null : Number(event.target.value) })} placeholder="120" className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                  <span className="text-sm text-slate-600">Janela min.</span>
+                  <input type="number" value={selectedRule.recurrence_window_minutes ?? ""} onChange={(event) => updateSelectedRule({ recurrence_window_minutes: event.target.value === "" ? null : Number(event.target.value) })} placeholder="120" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-sky-300" />
                 </label>
               </div>
               <label className="grid gap-2">
-                <span className="text-sm text-white/60">Texto ou padrão do alarme</span>
-                <input value={selectedRule.alarm_text_pattern || ""} onChange={(event) => updateSelectedRule({ alarm_text_pattern: event.target.value })} placeholder="Ex.: alta temperatura|compressor|offline" className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                <span className="text-sm text-slate-600">Texto ou padrão do alarme</span>
+                <input value={selectedRule.alarm_text_pattern || ""} onChange={(event) => updateSelectedRule({ alarm_text_pattern: event.target.value })} placeholder="Ex.: alta temperatura|compressor|offline" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-sky-300" />
               </label>
               <label className="grid gap-2">
-                <span className="text-sm text-white/60">Explicação que aparece na ocorrência</span>
-                <textarea rows={3} value={selectedRule.explanation_template || ""} onChange={(event) => updateSelectedRule({ explanation_template: event.target.value })} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                <span className="text-sm text-slate-600">Explicação que aparece na ocorrência</span>
+                <textarea rows={3} value={selectedRule.explanation_template || ""} onChange={(event) => updateSelectedRule({ explanation_template: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300" />
               </label>
               <label className="grid gap-2">
-                <span className="text-sm text-white/60">Ação recomendada</span>
-                <textarea rows={3} value={selectedRule.recommended_action_template || ""} onChange={(event) => updateSelectedRule({ recommended_action_template: event.target.value })} className="rounded-xl border border-white/10 bg-white/[0.055] px-4 py-3 text-sm" />
+                <span className="text-sm text-slate-600">Ação recomendada</span>
+                <textarea rows={3} value={selectedRule.recommended_action_template || ""} onChange={(event) => updateSelectedRule({ recommended_action_template: event.target.value })} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300" />
               </label>
             </div>
           ) : (
@@ -3406,16 +3464,16 @@ function RulesView({ canManage }: { canManage: boolean }) {
       </div>
 
       <Panel>
-        <p className="text-xs uppercase tracking-[0.18em] text-white/45">Últimas avaliações</p>
-        <h3 className="mt-2 text-xl font-semibold">Aplicação recente das regras</h3>
+        <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Últimas avaliações</p>
+        <h3 className="mt-2 text-xl font-semibold text-slate-900">Aplicação recente das regras</h3>
         <div className="mt-5 grid gap-3">
           {evaluations.length ? evaluations.map((item) => (
-            <div key={item.id || `${item.rule_id}-${item.evaluated_at}`} className="grid gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4 text-sm md:grid-cols-[1fr_auto]">
+            <div key={item.id || `${item.rule_id}-${item.evaluated_at}`} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm md:grid-cols-[1fr_auto]">
               <div>
-                <p className="font-semibold">{item.explanation || evidenceString(item.evidence_json, "rule_name", "Regra operacional aplicada")}</p>
-                <p className="mt-1 text-white/60">{item.loja_nome || `Loja ${item.loja_id ?? "-"}`} - {item.tag || `Dispositivo ${item.dispositivo_id ?? "-"}`}</p>
+                <p className="font-semibold text-slate-900">{item.explanation || evidenceString(item.evidence_json, "rule_name", "Regra operacional aplicada")}</p>
+                <p className="mt-1 text-slate-500">{item.loja_nome || `Loja ${item.loja_id ?? "-"}`} - {item.tag || `Dispositivo ${item.dispositivo_id ?? "-"}`}</p>
               </div>
-              <div className="text-white/65 md:text-right">
+              <div className="text-slate-600 md:text-right">
                 <p>{severityLabel(item.severity || "info")} - Urgência {item.score ?? "-"}/100</p>
                 <p>{formatDate(item.evaluated_at)}</p>
               </div>
@@ -3981,8 +4039,8 @@ export default function HomePage() {
             }}
           />
 
-          <section className="min-w-0 flex-1 px-3 pb-24 pt-3 sm:px-4 md:px-5 lg:px-6 lg:pb-6 lg:pt-4">
-            <div key={activeView} className="app-content-view mx-auto flex w-full max-w-[1360px] flex-col gap-4">
+          <section className="min-w-0 flex-1 px-2 pb-24 pt-3 sm:px-4 md:px-5 lg:px-6 lg:pb-6 lg:pt-4">
+            <div key={activeView} className="app-content-view flex w-full min-w-0 flex-col gap-4">
               {overviewState.error ? <ErrorBanner message={overviewState.error} /> : null}
               {insightsState.error && activeView === "alertas" ? (
                 <ErrorBanner message={insightsState.error} />
