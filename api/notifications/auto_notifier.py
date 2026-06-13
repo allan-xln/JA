@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -27,14 +28,37 @@ _logged_notification_schema_warnings: set[str] = set()
 AI_NOTIFICATION_SYSTEM_PROMPT = (
     "Você escreve como operador de refrigeração da Eletrofrio, de forma clara e direta para WhatsApp. "
     "Não diga que é IA e não invente causa raiz, valores, lojas ou sensores. "
-    "Use poucos emojis, organize em linhas curtas e mantenha tom profissional e amigável."
+    "Use poucos emojis, organize em linhas curtas, use negrito do WhatsApp com *texto* nos rótulos principais "
+    "e mantenha tom profissional e amigável. "
+    "Sempre finalize convidando a acessar o portal https://eletrofrio.147.15.56.49.nip.io/."
 )
 
 
+def _strip_portal_lines(message: str) -> str:
+    lines = str(message or "").splitlines()
+    cleaned: list[str] = []
+    skip_next_url = False
+    for line in lines:
+        normalized = line.strip().casefold()
+        has_url = bool(re.search(r"https?://\S+", line))
+        mentions_portal = "portal" in normalized or "painel" in normalized
+        if has_url and "eletrofrio.147.15.56.49.nip.io" not in line:
+            continue
+        if mentions_portal and "eletrofrio.147.15.56.49.nip.io" not in line:
+            skip_next_url = True
+            continue
+        if skip_next_url and has_url:
+            skip_next_url = False
+            continue
+        skip_next_url = False
+        cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 def _with_portal_footer(message: str) -> str:
-    text = str(message or "").strip()
+    text = _strip_portal_lines(str(message or "").strip())
     footer = portal_footer(settings.app_public_url)
-    if settings.app_public_url in text:
+    if "eletrofrio.147.15.56.49.nip.io" in text:
         return text
     return f"{text}\n\n{footer}".strip()
 
@@ -284,7 +308,7 @@ def _enrich_message_with_ai(rows: list[dict[str, Any]], local_message: str) -> t
                             "Manter no máximo 1200 caracteres.",
                             "Incluir ação inicial objetiva.",
                             "Nao falar que a mensagem foi feita por IA.",
-                            f"Incluir o link do portal quando couber: {settings.app_public_url}",
+                            "Incluir o link do portal quando couber: https://eletrofrio.147.15.56.49.nip.io/",
                         ],
                         "local_message": local_message,
                         "items": [_compact_item_for_ai(row) for row in rows[:5]],
@@ -581,7 +605,12 @@ def send_test_notification(payload: dict[str, Any], scope: TenantScope | None = 
     phone = _normalize_recipient_phone(phone)
 
     recipient = {**recipient, "phone": phone, "channel": recipient.get("channel") or "whatsapp"}
-    message = _with_portal_footer(str(payload.get("message") or "Teste de notificação operacional Eletrofrio.").strip())
+    message = _with_portal_footer(
+        str(
+            payload.get("message")
+            or "*Eletrofrio Refrigeração*\n✅ *Teste de WhatsApp recebido*\n\nSeu número está pronto para receber métricas e alertas operacionais inteligentes."
+        ).strip()
+    )
     item = {
         "source_kind": "test",
         "source_id": _hash(["test", phone, datetime.now(timezone.utc).isoformat(timespec="seconds")]),

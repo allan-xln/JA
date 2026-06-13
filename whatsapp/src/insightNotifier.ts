@@ -111,7 +111,10 @@ function compactText(value: string | null | undefined, fallback: string, maxLeng
 }
 
 function portalFooter() {
-  return `Mais detalhes no portal:\n${config.appPublicUrl}`;
+  const url = config.appPublicUrl.includes("eletrofrio.147.15.56.49.nip.io")
+    ? config.appPublicUrl
+    : "https://eletrofrio.147.15.56.49.nip.io";
+  return `🔎 *Acesse o portal para acompanhar:*\n${url.replace(/\/+$/, "")}/`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -294,7 +297,9 @@ async function recentlySentForStore(lojaId: number | null) {
 function formatOperationalMessage(item: NotificationItem) {
   const loja = item.loja_nome || (item.loja_id ? `unidade ${item.loja_id}` : "loja monitorada");
   const equipamento = item.tag || (item.dispositivo_id ? `dispositivo ${item.dispositivo_id}` : "equipamento monitorado");
-  const severity = ["critical", "critico", "critica"].includes(normalize(item.severity || "")) ? "Alta" : "Atenção";
+  const bucket = severityBucket(item);
+  const severity = bucket === "critical" ? "Crítica" : bucket === "warning" ? "Atenção" : "Informativa";
+  const title = bucket === "critical" ? "🚨 *Ocorrência crítica*" : bucket === "warning" ? "⚠️ *Ocorrência em atenção*" : "ℹ️ *Ocorrência informativa*";
   const evidence = operationalEvidenceText(item);
   const evaluation = ruleEvaluation(item);
   const ruleName = String(item.evidence_json?.rule_name || evaluation.rule_name || "");
@@ -305,20 +310,22 @@ function formatOperationalMessage(item: NotificationItem) {
     "Verificar operação local, comunicação, porta, carga térmica e condição do equipamento.";
 
   const message = [
-    "🔔 Alerta Eletrofrio",
-    `Prioridade: ${severity}`,
+    "*Eletrofrio Refrigeração*",
+    title,
     "",
-    `Loja: ${loja}`,
-    `Equipamento: ${equipamento}`,
-    ruleName ? `Regra: ${ruleName}` : "",
-    evidenceLevel ? `Evidência: ${evidenceLevel}` : "",
+    `🏬 *Loja:* ${loja}`,
+    `🧊 *Equipamento:* ${equipamento}`,
+    `🎯 *Prioridade:* ${severity}`,
+    ruleName ? `📏 *Regra:* ${ruleName}` : "",
+    evidenceLevel ? `📌 *Evidência:* ${evidenceLevel}` : "",
     "",
-    `Situação: ${evidence}`,
+    "📍 *O que aconteceu*",
+    evidence,
     "",
-    "Próximo passo:",
+    "✅ *Próximo passo*",
     action,
     "",
-    "Obs.: diagnóstico inicial; confirme a condição no local antes de acionar manutenção.",
+    "_Diagnóstico inicial. Confirme a condição no local antes de acionar manutenção._",
     "",
     portalFooter(),
   ]
@@ -331,7 +338,9 @@ function formatOperationalMessage(item: NotificationItem) {
 function formatSummaryItem(item: NotificationItem, index: number) {
   const loja = item.loja_nome || (item.loja_id ? `unidade ${item.loja_id}` : "loja monitorada");
   const equipamento = item.tag || (item.dispositivo_id ? `dispositivo ${item.dispositivo_id}` : "equipamento monitorado");
-  const severity = severityBucket(item) === "critical" ? "crítica" : severityBucket(item) === "warning" ? "atenção" : "informativa";
+  const bucket = severityBucket(item);
+  const severity = bucket === "critical" ? "crítica" : bucket === "warning" ? "atenção" : "informativa";
+  const icon = bucket === "critical" ? "🚨" : bucket === "warning" ? "⚠️" : "ℹ️";
   const source = item.source === "anomaly" ? "anomalia" : "insight";
   const evidence = compactText(operationalEvidenceText(item), "Ocorrência operacional relevante.", 240);
   const evaluation = ruleEvaluation(item);
@@ -341,10 +350,11 @@ function formatSummaryItem(item: NotificationItem, index: number) {
     "validar leitura local, porta, carga térmica e condição do equipamento.";
 
   return [
-    `${index}. ${loja} - ${equipamento}`,
-    `Prioridade: ${severity}. Origem: ${source}.`,
-    `Situação: ${evidence}`,
-    `Próximo passo: ${compactText(action, "Validar evidência local e condição do equipamento.", 180)}`,
+    `${index}. ${icon} *${loja}*`,
+    `   🧊 ${equipamento}`,
+    `   • Prioridade: *${severity}* | origem: ${source}`,
+    `   • ${evidence}`,
+    `   • Próximo passo: ${compactText(action, "Validar evidência local e condição do equipamento.", 180)}`,
   ].join("\n");
 }
 
@@ -388,23 +398,24 @@ function formatOperationalSummaryMessage(run: CollectorRun | null, items: Notifi
   const topStores = topLabels(allItems, (item) => item.loja_nome || (item.loja_id ? `Loja ${item.loja_id}` : ""));
   const topEquipment = topLabels(allItems, (item) => item.tag || (item.dispositivo_id ? `Dispositivo ${item.dispositivo_id}` : ""));
   const header = [
-    "📋 Resumo operacional Eletrofrio",
+    "*Eletrofrio Refrigeração*",
+    "📋 *Resumo operacional*",
     "",
-    `Atualização: ${new Date(finishedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}.`,
-    `Base da coleta: ${run?.units_count ?? 0} lojas, ${run?.alarms_count ?? 0} alarmes e ${run?.telemetry_count ?? 0} telemetrias.`,
-    `Ocorrências relevantes: ${totals.total} (${totals.critical} críticas, ${totals.warning} em atenção, ${totals.info} informativas).`,
-    topStores.length ? `Lojas com mais ocorrências: ${topStores.join("; ")}.` : "",
-    topEquipment.length ? `Equipamentos mais recorrentes: ${topEquipment.join("; ")}.` : "",
+    `🕒 *Atualização:* ${new Date(finishedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`,
+    `📊 *Coleta:* ${run?.units_count ?? 0} lojas, ${run?.alarms_count ?? 0} alarmes e ${run?.telemetry_count ?? 0} telemetrias.`,
+    `🚦 *Ocorrências:* ${totals.total} no total | ${totals.critical} críticas | ${totals.warning} em atenção | ${totals.info} informativas.`,
+    topStores.length ? `🏬 *Lojas com mais ocorrências:* ${topStores.join("; ")}.` : "",
+    topEquipment.length ? `🧊 *Equipamentos recorrentes:* ${topEquipment.join("; ")}.` : "",
     criticalItems.length || warningItems.length
-      ? `Prioridade agora: tratar ${criticalItems.length} críticas e acompanhar ${warningItems.length} em atenção.`
-      : "Prioridade agora: acompanhar ocorrências informativas e manter a coleta ativa.",
+      ? `✅ *Prioridade agora:* tratar ${criticalItems.length} críticas e acompanhar ${warningItems.length} em atenção.`
+      : "✅ *Prioridade agora:* acompanhar ocorrências informativas e manter a coleta ativa.",
     "",
-    "Destaques principais:",
+    "✨ *Destaques principais*",
   ].filter(Boolean).join("\n");
   const body = items.map((item, index) => formatSummaryItem(item, index + 1)).join("\n\n");
-  const footer = `\n\nObs.: diagnóstico inicial; valide a condição no local antes de acionar manutenção.\n\n${portalFooter()}`;
+  const footer = `\n\n_Diagnóstico inicial. Valide a condição no local antes de acionar manutenção._\n\n${portalFooter()}`;
   const message = `${header}\n${body}${footer}`;
-  return message.length <= 3600 ? message : `${message.slice(0, 3548).trim()}...\n\nObs.: resumo reduzido para o canal operacional.`;
+  return message.length <= 3600 ? message : `${message.slice(0, 3548).trim()}...\n\n_Resumo reduzido para o canal operacional._`;
 }
 
 function addReason(reasons: Record<string, number>, reason: IgnoreReason) {

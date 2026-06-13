@@ -109,13 +109,17 @@ async function resolveRecipientJid(sock: WASocket, phone: string) {
 function formatOutgoingMessage(message: string) {
   const text = message.trim();
   if (!text) return "";
-  if (text.includes(config.appPublicUrl)) return text;
+  if (text.includes("eletrofrio.147.15.56.49.nip.io")) return text;
+
+  const url = config.appPublicUrl.includes("eletrofrio.147.15.56.49.nip.io")
+    ? config.appPublicUrl
+    : "https://eletrofrio.147.15.56.49.nip.io";
 
   return [
     text,
     "",
-    "Mais detalhes no portal:",
-    config.appPublicUrl,
+    "🔎 *Acesse o portal para acompanhar:*",
+    `${url.replace(/\/+$/, "")}/`,
   ].join("\n");
 }
 

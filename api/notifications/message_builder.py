@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-DEFAULT_PORTAL_URL = "https://eletrofrio.147.15.56.49.nip.io"
+DEFAULT_PORTAL_URL = "https://eletrofrio.147.15.56.49.nip.io/"
 
 
 def _clean(value: Any, fallback: str = "-") -> str:
@@ -41,9 +41,30 @@ def priority_label(severity: Any) -> str:
     return "Informativa"
 
 
+def priority_heading(severity: Any) -> str:
+    value = str(severity or "").casefold()
+    if value in {"critical", "critico", "crítico", "high"}:
+        return "🚨 *Ocorrência crítica*"
+    if value in {"warning", "medium"}:
+        return "⚠️ *Ocorrência em atenção*"
+    return "ℹ️ *Ocorrência informativa*"
+
+
+def priority_emoji(severity: Any) -> str:
+    value = str(severity or "").casefold()
+    if value in {"critical", "critico", "crítico", "high"}:
+        return "🚨"
+    if value in {"warning", "medium"}:
+        return "⚠️"
+    return "ℹ️"
+
+
 def portal_footer(panel_url: str = "") -> str:
-    url = (panel_url or DEFAULT_PORTAL_URL).rstrip("/")
-    return f"Mais detalhes no portal:\n{url}"
+    url = (panel_url or DEFAULT_PORTAL_URL).strip() or DEFAULT_PORTAL_URL
+    if "eletrofrio.147.15.56.49.nip.io" not in url:
+        url = DEFAULT_PORTAL_URL
+    url = f"{url.rstrip('/')}/"
+    return f"🔎 *Acesse o portal para acompanhar:*\n{url}"
 
 
 def problem_label(item: dict[str, Any]) -> str:
@@ -84,19 +105,23 @@ def build_single_message(item: dict[str, Any], panel_url: str = "") -> str:
     action = item.get("recommended_action") or "validar sensor, porta, carga térmica e condição do sistema de refrigeração."
     return "\n".join(
         [
-            "🔔 Alerta Eletrofrio",
-            f"Prioridade: {priority_label(item.get('severity'))}",
+            "*Eletrofrio Refrigeração*",
+            priority_heading(item.get("severity")),
             "",
-            f"Loja: {store_label(item)}",
-            f"Equipamento: {equipment_label(item)}",
+            f"🏬 *Loja:* {store_label(item)}",
+            f"🧊 *Equipamento:* {equipment_label(item)}",
             "",
-            f"Situação: {problem_label(item)}",
-            f"Leitura: {_format_value(item.get('value'))} | esperado: {_expected_range_label(item.get('expected_range'))}",
+            "📌 *O que aconteceu*",
+            problem_label(item),
             "",
-            "Próximo passo:",
+            "🌡️ *Leitura*",
+            f"Atual: {_format_value(item.get('value'))}",
+            f"Esperado: {_expected_range_label(item.get('expected_range'))}",
+            "",
+            "✅ *Próximo passo*",
             _clean(action),
             "",
-            "Obs.: diagnóstico inicial; confirme a condição no local antes de acionar manutenção.",
+            "_Diagnóstico inicial. Confirme a condição no local antes de acionar manutenção._",
             "",
             portal_footer(panel_url),
         ]
@@ -106,24 +131,26 @@ def build_single_message(item: dict[str, Any], panel_url: str = "") -> str:
 def build_group_message(items: list[dict[str, Any]], panel_url: str = "") -> str:
     selected = items[:5]
     lines = [
-        "🔔 Resumo operacional Eletrofrio",
+        "*Eletrofrio Refrigeração*",
+        "📋 *Resumo operacional*",
         "",
-        f"{len(items)} ocorrências relevantes passaram pelos filtros de prioridade.",
-        "Principais pontos:",
+        f"Foram encontradas *{len(items)} ocorrência(s) relevante(s)* que passaram pelos filtros de prioridade.",
+        "",
+        "✨ *Principais pontos*",
         "",
     ]
     for index, item in enumerate(selected, 1):
         lines.extend(
             [
-                f"{index}. {item_title(item)}",
-                f"{problem_label(item)}",
-                f"Prioridade: {priority_label(item.get('severity'))}.",
+                f"{index}. {priority_emoji(item.get('severity'))} *{item_title(item)}*",
+                f"   • {problem_label(item)}",
+                f"   • Prioridade: *{priority_label(item.get('severity'))}*",
                 "",
             ]
         )
     lines.extend(
         [
-            "Confira o painel antes de acionar manutenção ou visita técnica.",
+            "✅ *Próximo passo:* confira o painel antes de acionar manutenção ou visita técnica.",
             "",
             portal_footer(panel_url),
         ]
