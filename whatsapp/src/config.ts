@@ -28,6 +28,7 @@ export const config = {
   minIntervalMinutesPerDevice: numberEnv("WHATSAPP_MIN_INTERVAL_MINUTES_PER_DEVICE", 30),
   minIntervalMinutesPerStore: numberEnv("WHATSAPP_MIN_INTERVAL_MINUTES_PER_STORE", 60),
   eletrofrioApiUrl: (process.env.ELETROFRIO_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, ""),
+  internalServiceToken: process.env.ELETROFRIO_INTERNAL_SERVICE_TOKEN || process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   appPublicUrl: (process.env.APP_PUBLIC_URL || "https://eletrofrio.147.15.56.49.nip.io").replace(/\/+$/, ""),
   supabaseUrl: (process.env.SUPABASE_URL || "").replace(/\/+$/, ""),
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",

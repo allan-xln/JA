@@ -42,6 +42,7 @@ class Settings:
     eletrofrio_team_name: str = os.getenv("ELETROFRIO_TEAM_NAME", "")
     supabase_url: str = os.getenv("SUPABASE_URL", "").rstrip("/")
     supabase_service_role_key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    internal_service_token: str = os.getenv("ELETROFRIO_INTERNAL_SERVICE_TOKEN", os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""))
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     collector_interval_minutes: int = int(os.getenv("COLLECTOR_INTERVAL_MINUTES", "5"))

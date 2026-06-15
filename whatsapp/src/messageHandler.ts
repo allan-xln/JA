@@ -39,7 +39,7 @@ export async function handleIncomingMessage(sock: WASocket, message: WAMessage) 
       status: "received",
       source: "WhatsApp",
     });
-    const answer = await askOperationalAssistant(originalText);
+    const answer = await askOperationalAssistant(originalText, sender);
     await sendWhatsAppMessage(sender, answer);
     await logCommunication({
       type: "rag_response",
@@ -83,16 +83,20 @@ type AssistantAnswer = {
   sources?: AssistantSource[];
 };
 
-async function askOperationalAssistant(question: string) {
+async function askOperationalAssistant(question: string, sender: string) {
   try {
-    const response = await fetch(`${config.eletrofrioApiUrl}/api/eletrofrio/assistant/ask`, {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (config.internalServiceToken) {
+      headers["X-Eletrofrio-Service-Token"] = config.internalServiceToken;
+    }
+    const response = await fetch(`${config.eletrofrioApiUrl}/api/eletrofrio/assistant/whatsapp`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, origin: "whatsapp" }),
+      headers,
+      body: JSON.stringify({ question, origin: "whatsapp", phone: sender }),
     });
 
     if (!response.ok) {
-      throw new Error(`Backend retornou ${response.status}`);
+      throw new Error(`Backend retornou ${response.status}: ${await response.text()}`);
     }
 
     return formatOperationalReply((await response.json()) as AssistantAnswer);

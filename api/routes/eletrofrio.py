@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import hmac
 import time
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 import requests
 
 from api.ai.operational_qa import ASSISTANT_SUGGESTIONS, answer_operational_question
 from api.analysis.metrics import build_metrics
-from api.auth import AuthUser, current_user, require_admin
+from api.auth import AuthUser, TenantScope, current_user, require_admin, scope_for_user
 from api.communications import (
     communication_timeline,
     list_communications,
@@ -57,6 +58,7 @@ class WhatsAppTestPayload(BaseModel):
 class AssistantQueryPayload(BaseModel):
     question: str
     origin: str = "panel"
+    phone: str | None = None
 
 
 class OperationalRulePayload(BaseModel):
@@ -139,6 +141,78 @@ def handle_assistant_question(payload: AssistantQueryPayload, user: AuthUser):
     )
     log_rag_query(question=question, answer=answer, response_time_ms=response_time_ms, scope=user.scope)
     return answer
+
+
+def require_internal_service_token(x_eletrofrio_service_token: str | None = Header(None)) -> None:
+    expected = settings.internal_service_token
+    if not expected or not x_eletrofrio_service_token or not hmac.compare_digest(x_eletrofrio_service_token, expected):
+        raise HTTPException(status_code=401, detail="Token interno inválido.")
+
+
+def phone_variants(value: str | None) -> set[str]:
+    digits = "".join(char for char in str(value or "") if char.isdigit())
+    if not digits:
+        return set()
+    variants = {digits}
+    if digits.startswith("55") and len(digits) in {12, 13}:
+        variants.add(digits[2:])
+    if len(digits) in {10, 11}:
+        variants.add(f"55{digits}")
+    return variants
+
+
+def phone_matches(left: str | None, right: str | None) -> bool:
+    return bool(phone_variants(left) & phone_variants(right))
+
+
+def whatsapp_recipient_for_phone(phone: str | None) -> dict | None:
+    if not phone:
+        return None
+    try:
+        rows = supabase.select(
+            "eletrofrio_notification_recipients",
+            {"select": "id,customer_id,role,name,phone,enabled", "limit": 1000},
+        )
+    except Exception:
+        return None
+    return next(
+        (
+            row
+            for row in rows
+            if row.get("enabled", True) and phone_matches(phone, row.get("phone"))
+        ),
+        None,
+    )
+
+
+def whatsapp_user_for_phone(phone: str | None) -> AuthUser:
+    recipient = whatsapp_recipient_for_phone(phone)
+    if recipient and recipient.get("customer_id") and recipient.get("role") != "admin":
+        user_row = {
+            "id": f"whatsapp:{recipient.get('id') or recipient.get('customer_id')}",
+            "username": recipient.get("name") or "whatsapp_cliente",
+            "role": "client",
+            "customer_id": recipient.get("customer_id"),
+        }
+        scope = scope_for_user(user_row)
+        return AuthUser(
+            id=str(user_row["id"]),
+            username=str(user_row["username"]),
+            role="client",
+            customer_id=scope.customer_id,
+            customer_name=scope.customer_name,
+            scope=scope,
+        )
+
+    scope = TenantScope(role="admin", customer_id=None, customer_name=None)
+    return AuthUser(
+        id="whatsapp-service",
+        username="whatsapp",
+        role="admin",
+        customer_id=None,
+        customer_name=None,
+        scope=scope,
+    )
 
 
 def require_supabase() -> None:
@@ -428,6 +502,13 @@ def eletrofrio_assistant_ask(payload: AssistantQueryPayload, user: AuthUser = De
 @router.post("/assistant/query")
 def eletrofrio_assistant_query(payload: AssistantQueryPayload, user: AuthUser = Depends(current_user)):
     return handle_assistant_question(payload, user)
+
+
+@router.post("/assistant/whatsapp")
+def eletrofrio_assistant_whatsapp(payload: AssistantQueryPayload, _: None = Depends(require_internal_service_token)):
+    require_supabase()
+    whatsapp_payload = AssistantQueryPayload(question=payload.question, origin="whatsapp", phone=payload.phone)
+    return handle_assistant_question(whatsapp_payload, whatsapp_user_for_phone(payload.phone))
 
 
 @router.post("/run-collector")
