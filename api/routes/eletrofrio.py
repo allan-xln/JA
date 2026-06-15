@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hmac
+import re
 import time
+import unicodedata
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 import requests
@@ -185,24 +187,76 @@ def whatsapp_recipient_for_phone(phone: str | None) -> dict | None:
     )
 
 
-def whatsapp_user_for_phone(phone: str | None) -> AuthUser:
+def normalized_customer_text(value: str | None, compact: bool = False) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
+    text = "".join(char for char in normalized if not unicodedata.combining(char))
+    if compact:
+        return re.sub(r"[^a-z0-9]+", "", text)
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", text).split())
+
+
+def customer_from_question(question: str | None) -> dict | None:
+    query = normalized_customer_text(question)
+    compact_query = normalized_customer_text(question, compact=True)
+    if not query and not compact_query:
+        return None
+    try:
+        rows = supabase.select(
+            "eletrofrio_customers",
+            {"select": "id,slug,name,is_active", "limit": 10000},
+        )
+    except Exception:
+        return None
+
+    candidates: list[tuple[int, dict]] = []
+    for row in rows:
+        if row.get("is_active") is False:
+            continue
+        name = normalized_customer_text(row.get("name"))
+        slug = normalized_customer_text(row.get("slug"), compact=True)
+        if slug and slug in compact_query:
+            candidates.append((len(slug) + 20, row))
+            continue
+        if name and f" {name} " in f" {query} ":
+            candidates.append((len(name) + 10, row))
+            continue
+        tokens = [token for token in name.split() if len(token) >= 4]
+        token_hits = [token for token in tokens if f" {token} " in f" {query} "]
+        if token_hits:
+            candidates.append((max(len(token) for token in token_hits), row))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def customer_scope_user(customer: dict, username: str = "whatsapp_cliente") -> AuthUser:
+    user_row = {
+        "id": f"whatsapp:{customer.get('id')}",
+        "username": username,
+        "role": "client",
+        "customer_id": customer.get("id"),
+    }
+    scope = scope_for_user(user_row)
+    return AuthUser(
+        id=str(user_row["id"]),
+        username=str(user_row["username"]),
+        role="client",
+        customer_id=scope.customer_id,
+        customer_name=scope.customer_name,
+        scope=scope,
+    )
+
+
+def whatsapp_user_for_phone(phone: str | None, question: str | None = None) -> AuthUser:
     recipient = whatsapp_recipient_for_phone(phone)
     if recipient and recipient.get("customer_id") and recipient.get("role") != "admin":
-        user_row = {
-            "id": f"whatsapp:{recipient.get('id') or recipient.get('customer_id')}",
-            "username": recipient.get("name") or "whatsapp_cliente",
-            "role": "client",
-            "customer_id": recipient.get("customer_id"),
-        }
-        scope = scope_for_user(user_row)
-        return AuthUser(
-            id=str(user_row["id"]),
-            username=str(user_row["username"]),
-            role="client",
-            customer_id=scope.customer_id,
-            customer_name=scope.customer_name,
-            scope=scope,
-        )
+        return customer_scope_user({"id": recipient.get("customer_id")}, recipient.get("name") or "whatsapp_cliente")
+
+    customer = customer_from_question(question)
+    if customer:
+        return customer_scope_user(customer, str(customer.get("slug") or customer.get("name") or "whatsapp_cliente"))
 
     scope = TenantScope(role="admin", customer_id=None, customer_name=None)
     return AuthUser(
@@ -508,7 +562,7 @@ def eletrofrio_assistant_query(payload: AssistantQueryPayload, user: AuthUser = 
 def eletrofrio_assistant_whatsapp(payload: AssistantQueryPayload, _: None = Depends(require_internal_service_token)):
     require_supabase()
     whatsapp_payload = AssistantQueryPayload(question=payload.question, origin="whatsapp", phone=payload.phone)
-    return handle_assistant_question(whatsapp_payload, whatsapp_user_for_phone(payload.phone))
+    return handle_assistant_question(whatsapp_payload, whatsapp_user_for_phone(payload.phone, payload.question))
 
 
 @router.post("/run-collector")

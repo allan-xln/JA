@@ -393,6 +393,8 @@ def detect_intent(question: str) -> str:
         return "offline_devices"
     if any(term in q for term in ("resumo", "operacao", "operação", "geral")):
         return "operation_summary"
+    if any(term in q for term in ("como esta", "como está", "como estao", "como estão")):
+        return "operation_summary"
     if any(term in q for term in ("anomalia", "anomalias", "problema hoje", "ocorrencia hoje", "ocorrência hoje")):
         return "recent_anomalies"
     if any(term in q for term in ("lojas criticas", "lojas críticas", "loja mais critica", "loja mais crítica")):
