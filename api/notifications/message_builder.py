@@ -86,10 +86,46 @@ def problem_label(item: dict[str, Any]) -> str:
     return text or "Ocorrência operacional relevante."
 
 
+def customer_label(item: dict[str, Any]) -> str:
+    return _clean(item.get("customer_name"), "")
+
+
+def customer_names(items: list[dict[str, Any]]) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        name = customer_label(item)
+        key = name.casefold()
+        if name and key not in seen:
+            names.append(name)
+            seen.add(key)
+    return names
+
+
+def customer_context_line(items: list[dict[str, Any]]) -> str:
+    names = customer_names(items)
+    if not names:
+        return ""
+    if len(names) == 1:
+        return f"👤 *Cliente:* {names[0]}"
+    return f"👤 *Clientes:* {', '.join(names[:5])}"
+
+
+def ensure_customer_context(message: str, items: list[dict[str, Any]]) -> str:
+    names = customer_names(items)
+    if not names:
+        return message
+    lowered = str(message or "").casefold()
+    if all(name.casefold() in lowered for name in names):
+        return message
+    return f"{customer_context_line(items)}\n\n{message}".strip()
+
+
 def item_title(item: dict[str, Any]) -> str:
     store = item.get("loja_nome") or (f"Loja {item.get('loja_id')}" if item.get("loja_id") else "Loja não identificada")
     tag = item.get("tag") or (f"Dispositivo {item.get('dispositivo_id') or item.get('equipment_id')}" if item.get("dispositivo_id") or item.get("equipment_id") else "equipamento monitorado")
-    return f"{store} — {tag}"
+    parts = [customer_label(item), store, tag]
+    return " — ".join(part for part in parts if part)
 
 
 def store_label(item: dict[str, Any]) -> str:
@@ -103,13 +139,22 @@ def equipment_label(item: dict[str, Any]) -> str:
 
 def build_single_message(item: dict[str, Any], panel_url: str = "") -> str:
     action = item.get("recommended_action") or "validar sensor, porta, carga térmica e condição do sistema de refrigeração."
+    identity_lines = []
+    customer = customer_label(item)
+    if customer:
+        identity_lines.append(f"👤 *Cliente:* {customer}")
+    identity_lines.extend(
+        [
+            f"🏬 *Loja:* {store_label(item)}",
+            f"🧊 *Equipamento:* {equipment_label(item)}",
+        ]
+    )
     return "\n".join(
         [
             "*Eletrofrio Refrigeração*",
             priority_heading(item.get("severity")),
             "",
-            f"🏬 *Loja:* {store_label(item)}",
-            f"🧊 *Equipamento:* {equipment_label(item)}",
+            *identity_lines,
             "",
             "📌 *O que aconteceu*",
             problem_label(item),

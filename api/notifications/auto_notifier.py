@@ -15,7 +15,7 @@ from api.communications import log_communication
 from api.config import settings
 from api.database import SupabaseError, supabase
 from api.logger import logger
-from api.notifications.message_builder import build_group_message, build_single_message, portal_footer, preview
+from api.notifications.message_builder import build_group_message, build_single_message, ensure_customer_context, portal_footer, preview
 from api.notifications.notification_rules import local_relevance, severity_rank
 from api.repositories import filter_rows_by_scope, list_anomalies, list_insights, utc_now_iso
 
@@ -28,6 +28,7 @@ _logged_notification_schema_warnings: set[str] = set()
 AI_NOTIFICATION_SYSTEM_PROMPT = (
     "Você escreve como operador de refrigeração da Eletrofrio, de forma clara e direta para WhatsApp. "
     "Não diga que é IA e não invente causa raiz, valores, lojas ou sensores. "
+    "Se o campo cliente estiver presente nos dados, inclua o nome exatamente como recebido; se não estiver, omita cliente. "
     "Use poucos emojis, organize em linhas curtas, use negrito do WhatsApp com *texto* nos rótulos principais "
     "e mantenha tom profissional e amigável. "
     "Sempre finalize convidando a acessar o portal https://eletrofrio.147.15.56.49.nip.io/."
@@ -162,6 +163,36 @@ def _load_customer_links() -> tuple[dict[int, str], dict[int, str]]:
     return units, devices
 
 
+def _load_customer_names() -> dict[str, str]:
+    names: dict[str, str] = {}
+    try:
+        for row in supabase.select("eletrofrio_customers", {"select": "id,name", "limit": 10000}):
+            customer_id = str(row.get("id") or "").strip()
+            name = " ".join(str(row.get("name") or "").split())
+            if customer_id and name:
+                names[customer_id] = name
+    except Exception as exc:
+        logger.warning("Usando fallback local para nomes de clientes nas notificações: %s", exc)
+
+    if names:
+        return names
+
+    store = _load_demo_store()
+    for row in store.get("customers", []):
+        customer_id = str(row.get("id") or "").strip()
+        name = " ".join(str(row.get("name") or "").split())
+        if customer_id and name:
+            names[customer_id] = name
+    return names
+
+
+def _customer_name_for_id(customer_id: str | None, customer_names: dict[str, str] | None = None) -> str | None:
+    if not customer_id:
+        return None
+    customer_names = customer_names or _load_customer_names()
+    return customer_names.get(str(customer_id))
+
+
 def _row_customer_id(row: dict[str, Any], unit_links: dict[int, str], device_links: dict[int, str]) -> str | None:
     if row.get("customer_id"):
         return str(row["customer_id"])
@@ -181,24 +212,26 @@ def _row_customer_id(row: dict[str, Any], unit_links: dict[int, str], device_lin
     return None
 
 
-def _normalize_anomaly(row: dict[str, Any], customer_id: str | None) -> dict[str, Any]:
+def _normalize_anomaly(row: dict[str, Any], customer_id: str | None, customer_name: str | None = None) -> dict[str, Any]:
     return {
         **row,
         "source_kind": "anomaly",
         "source_id": row.get("id"),
         "customer_id": customer_id,
+        "customer_name": customer_name,
         "title": row.get("title") or row.get("summary") or "Ocorrência operacional relevante",
         "dispositivo_id": row.get("dispositivo_id") or row.get("equipment_id"),
     }
 
 
-def _normalize_insight(row: dict[str, Any], customer_id: str | None) -> dict[str, Any]:
+def _normalize_insight(row: dict[str, Any], customer_id: str | None, customer_name: str | None = None) -> dict[str, Any]:
     evidence = row.get("evidence_json") if isinstance(row.get("evidence_json"), dict) else {}
     return {
         **row,
         "source_kind": "insight",
         "source_id": row.get("id"),
         "customer_id": customer_id,
+        "customer_name": customer_name,
         "type": row.get("insight_type"),
         "message": row.get("summary") or row.get("technical_reason") or row.get("title"),
         "expected_range": evidence.get("expected_range") or {},
@@ -275,6 +308,7 @@ def _compact_item_for_ai(row: dict[str, Any]) -> dict[str, Any]:
     evidence = row.get("evidence_json") if isinstance(row.get("evidence_json"), dict) else {}
     return {
         "source": row.get("source_kind"),
+        "cliente": row.get("customer_name"),
         "severity": row.get("severity"),
         "loja_nome": row.get("loja_nome"),
         "loja_id": row.get("loja_id"),
@@ -303,7 +337,8 @@ def _enrich_message_with_ai(rows: list[dict[str, Any]], local_message: str) -> t
                         "task": "Gerar uma mensagem curta de WhatsApp para alerta operacional.",
                         "rules": [
                             "Nao confirmar causa raiz automaticamente.",
-                            "Nao inventar leitura, faixa, loja, sensor ou equipamento.",
+                            "Nao inventar cliente, leitura, faixa, loja, sensor ou equipamento.",
+                            "Se o item trouxer cliente, citar o cliente exatamente como veio no JSON.",
                             "Se houver várias ocorrências, agrupar em resumo com até 5 itens.",
                             "Manter no máximo 1200 caracteres.",
                             "Incluir ação inicial objetiva.",
@@ -421,6 +456,16 @@ def delete_recipient(recipient_id: str) -> dict[str, Any]:
     return rows[0] if rows else {"id": recipient_id, "deleted": True}
 
 
+def _attach_customer_names(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    customer_names = _load_customer_names()
+    enriched: list[dict[str, Any]] = []
+    for row in rows:
+        customer_id = str(row.get("customer_id") or "").strip()
+        customer_name = row.get("customer_name") or customer_names.get(customer_id)
+        enriched.append({**row, "customer_name": customer_name})
+    return enriched
+
+
 def list_events(limit: int = 80, status: str | None = None, scope: TenantScope | None = None, offset: int = 0) -> dict[str, Any]:
     page_limit = min(max(limit, 1), 200)
     page_offset = max(offset, 0)
@@ -439,7 +484,7 @@ def list_events(limit: int = 80, status: str | None = None, scope: TenantScope |
     if scope and not scope.is_admin:
         rows = [row for row in rows if str(row.get("customer_id") or "") == str(scope.customer_id)]
         rows = rows[page_offset : page_offset + page_limit]
-    return {"schema_applied": True, "items": rows[:page_limit]}
+    return {"schema_applied": True, "items": _attach_customer_names(rows[:page_limit])}
 
 
 def _recipient_event_id(recipient: dict[str, Any]) -> str | None:
@@ -502,6 +547,7 @@ def _insert_event(item: dict[str, Any], recipient: dict[str, Any] | None, status
                 "dispositivo_id": item.get("dispositivo_id") or item.get("equipment_id"),
                 "tag": item.get("tag"),
                 "customer_id": item.get("customer_id"),
+                "customer_name": item.get("customer_name"),
                 "message_preview": message,
                 "payload_json": {
                     "notification_status": status,
@@ -551,13 +597,14 @@ def _send_message(recipient: dict[str, Any], message: str) -> tuple[str, str | N
 
 def _candidate_items() -> list[dict[str, Any]]:
     unit_links, device_links = _load_customer_links()
+    customer_names = _load_customer_names()
     items: list[dict[str, Any]] = []
     for row in list_anomalies(120, "open"):
         customer_id = _row_customer_id(row, unit_links, device_links)
-        items.append(_normalize_anomaly(row, customer_id))
+        items.append(_normalize_anomaly(row, customer_id, _customer_name_for_id(customer_id, customer_names)))
     for row in list_insights(80):
         customer_id = _row_customer_id(row, unit_links, device_links)
-        items.append(_normalize_insight(row, customer_id))
+        items.append(_normalize_insight(row, customer_id, _customer_name_for_id(customer_id, customer_names)))
     return items
 
 
@@ -615,6 +662,7 @@ def send_test_notification(payload: dict[str, Any], scope: TenantScope | None = 
         "source_kind": "test",
         "source_id": _hash(["test", phone, datetime.now(timezone.utc).isoformat(timespec="seconds")]),
         "customer_id": recipient.get("customer_id") if recipient.get("role") != "admin" else None,
+        "customer_name": _customer_name_for_id(recipient.get("customer_id")) if recipient.get("role") != "admin" else None,
         "severity": "info",
         "title": "Teste de notificação operacional",
     }
@@ -742,6 +790,7 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
             message, used_ai, _ai_warning = _enrich_message_with_ai(rows, message)
             if used_ai:
                 ai_enriched += len(rows)
+        message = ensure_customer_context(message, rows)
         message = _with_portal_footer(message)
         status, error, provider_id = ("dry_run", None, None) if effective_dry_run else _send_message(recipient, message)
         if status == "sent":

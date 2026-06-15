@@ -121,6 +121,9 @@ def _to_int(value: Any) -> int | None:
 def row_in_scope(row: dict[str, Any], scope: TenantScope | None) -> bool:
     if scope is None or scope.is_admin:
         return True
+    row_customer_id = str(row.get("customer_id") or "").strip()
+    if row_customer_id:
+        return row_customer_id == str(scope.customer_id)
     loja_id = _to_int(row.get("loja_id"))
     dispositivo_id = _to_int(row.get("dispositivo_id") or row.get("equipment_id"))
     if loja_id is not None and loja_id in scope.allowed_loja_ids:

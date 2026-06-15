@@ -307,6 +307,7 @@ export type NotificationRecipient = {
 export type NotificationEvent = {
   id: string;
   customer_id: string | null;
+  customer_name?: string | null;
   anomaly_id: string | null;
   insight_id: string | null;
   recipient_id: string | null;

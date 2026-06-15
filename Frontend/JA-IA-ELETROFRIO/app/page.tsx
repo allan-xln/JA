@@ -1856,6 +1856,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
         item.type,
         item.status,
         item.source,
+        item.customer_name || "",
         item.phone || "",
         item.message_preview || "",
         minuteKey,
@@ -2441,6 +2442,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
                           <div className="flex flex-wrap gap-2">
                             <span className="rounded-md bg-black/20 px-2.5 py-1 text-xs font-semibold">{statusLabel(item.status)}</span>
                             <span className="rounded-md bg-black/20 px-2.5 py-1 text-xs">{severityLabel(item.severity || "info")}</span>
+                            {item.customer_name ? <span className="rounded-md bg-emerald-400/15 px-2.5 py-1 text-xs font-semibold text-emerald-100">{item.customer_name}</span> : null}
                           </div>
                           <p className="mt-2 text-sm font-semibold text-white">{item.title || "Notificação operacional"}</p>
                           <p className="mt-1 text-sm leading-5 text-white/60">
@@ -2466,7 +2468,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
               <h3 className="text-xl font-semibold">Conversas operacionais</h3>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:w-[420px]">
-              <input value={communicationSearch} onChange={(event) => setCommunicationSearch(event.target.value)} placeholder="Buscar telefone, loja, tag..." className="rounded-xl border border-white/10 px-3 py-2 text-sm outline-none" />
+              <input value={communicationSearch} onChange={(event) => setCommunicationSearch(event.target.value)} placeholder="Buscar cliente, telefone, loja, tag..." className="rounded-xl border border-white/10 px-3 py-2 text-sm outline-none" />
               <select value={communicationType} onChange={(event) => setCommunicationType(event.target.value)} className="rounded-xl border border-white/10 px-3 py-2 text-sm outline-none">
                 <option value="">Todos os tipos</option>
                 <option value="incoming_question">Perguntas</option>
@@ -2507,7 +2509,7 @@ function WhatsappView({ whatsapp, canManage }: { whatsapp: WhatsappController; c
                         </div>
                         <p className="mt-3 text-sm leading-6 text-white/78">{item.message_preview || "Evento operacional registrado."}</p>
                         <p className="mt-2 text-xs text-white/45">
-                          {[item.phone, item.loja_nome, item.tag].filter(Boolean).join(" / ") || "Sem vínculo operacional direto"}
+                          {[item.customer_name, item.phone, item.loja_nome, item.tag].filter(Boolean).join(" / ") || "Sem vínculo operacional direto"}
                         </p>
                       </div>
                       <span className="text-xs text-white/45">{formatDate(item.created_at)}</span>
@@ -2628,6 +2630,7 @@ type IntelligentAlertRow = {
   id: string;
   generatedAt: string;
   type: string;
+  customerName?: string | null;
   unit: string;
   severity: string;
   message: string;
@@ -2755,6 +2758,7 @@ function IntelligentAlertsView({
       id: `event-${item.id}`,
       generatedAt: item.created_at,
       type: item.channel === "whatsapp" ? "WhatsApp automático" : item.channel || "Alerta automático",
+      customerName: item.customer_name,
       unit: unitFromNotification(item),
       severity: severityLabel(item.severity || "info"),
       message: item.message_full || item.message_preview || item.title || "Mensagem automática registrada.",
@@ -2813,6 +2817,7 @@ function IntelligentAlertsView({
 
       const text = [
         item.type,
+        item.customerName || "",
         item.unit,
         item.severity,
         item.message,
@@ -2893,7 +2898,7 @@ function IntelligentAlertsView({
               <input
                 value={alertQuery}
                 onChange={(event) => setAlertQuery(event.target.value)}
-                placeholder="Loja, mensagem, destino ou status..."
+                placeholder="Cliente, loja, mensagem, destino ou status..."
                 className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-slate-700 outline-none placeholder:text-slate-400"
               />
             </div>
@@ -2935,6 +2940,7 @@ function IntelligentAlertsView({
                       <StatusIcon tone={item.deliveryTone} />
                       {item.deliveryStatus}
                     </span>
+                    {item.customerName ? <span className="pill-soft rounded-md px-2.5 py-1 text-xs font-semibold">{item.customerName}</span> : null}
                     <span className="pill-soft rounded-md px-2.5 py-1 text-xs font-semibold">{item.severity}</span>
                     <span className="pill-soft rounded-md px-2.5 py-1 text-xs">{item.type}</span>
                   </div>

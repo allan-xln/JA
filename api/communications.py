@@ -98,6 +98,12 @@ def log_rag_query(
     )
 
 
+def _rag_row_in_scope(row: dict[str, Any], scope: TenantScope) -> bool:
+    if row.get("customer_id"):
+        return str(row.get("customer_id") or "") == str(scope.customer_id)
+    return any(row_in_scope(source, scope) for source in (row.get("sources_json") or []) if isinstance(source, dict))
+
+
 def list_communications(
     *,
     limit: int = 80,
@@ -127,7 +133,7 @@ def list_communications(
         term = search.lower()
         rows = [
             row for row in rows
-            if term in " ".join(str(row.get(key) or "") for key in ("phone", "loja_nome", "tag", "message_preview", "type", "status")).lower()
+            if term in " ".join(str(row.get(key) or "") for key in ("customer_name", "phone", "loja_nome", "tag", "message_preview", "type", "status")).lower()
         ]
     rows = filter_rows_by_scope(rows, scope)
     if scope and not scope.is_admin:
@@ -156,13 +162,9 @@ def list_rag_queries(*, limit: int = 50, offset: int = 0, search: str | None = N
         raise
     if search:
         term = search.lower()
-        rows = [row for row in rows if term in f"{row.get('question', '')} {row.get('answer_preview', '')}".lower()]
+        rows = [row for row in rows if term in f"{row.get('customer_name', '')} {row.get('question', '')} {row.get('answer_preview', '')}".lower()]
     if scope and not scope.is_admin:
-        rows = [
-            row for row in rows
-            if str(row.get("customer_id") or "") == str(scope.customer_id)
-            or any(row_in_scope(source, scope) for source in (row.get("sources_json") or []) if isinstance(source, dict))
-        ]
+        rows = [row for row in rows if _rag_row_in_scope(row, scope)]
         rows = rows[page_offset : page_offset + page_limit]
     return {"schema_applied": True, "items": rows[:page_limit]}
 
@@ -210,6 +212,8 @@ def communication_timeline(limit: int = 80, scope: TenantScope | None = None) ->
             "id": row.get("id"),
             "type": "rag_query",
             "direction": "outgoing",
+            "customer_id": row.get("customer_id"),
+            "customer_name": row.get("customer_name"),
             "message_preview": row.get("question"),
             "status": "answered",
             "source": "IA operacional",
@@ -223,6 +227,8 @@ def communication_timeline(limit: int = 80, scope: TenantScope | None = None) ->
             "type": row.get("type"),
             "direction": row.get("direction"),
             "phone": row.get("phone"),
+            "customer_id": row.get("customer_id"),
+            "customer_name": row.get("customer_name"),
             "message_preview": row.get("message_preview"),
             "status": row.get("delivery_status"),
             "source": "WhatsApp",
