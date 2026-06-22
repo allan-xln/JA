@@ -1,8 +1,6 @@
 -- Eletrofrio real data foundation.
 -- Run this file in the Supabase SQL editor before starting the collector.
 
-create extension if not exists pgcrypto;
-
 create table if not exists eletrofrio_units (
   id uuid primary key default gen_random_uuid(),
   loja_id bigint unique not null,

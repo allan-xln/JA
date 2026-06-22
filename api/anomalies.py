@@ -9,8 +9,9 @@ import requests
 
 from api.analysis.rules import classify_alarm_severity, severity_rank
 from api.config import settings
+from api.database import SupabaseError, supabase
 from api.logger import logger
-from api.repositories import find_open_anomaly, insert_anomaly, patch_anomaly, utc_now_iso
+from api.repositories import find_operational_anomaly, insert_anomaly, patch_anomaly, utc_now_iso
 from api.rules.rule_engine import enrich_evidence_with_rules
 
 
@@ -131,10 +132,37 @@ def _cooldown_active(existing: dict[str, Any], cooldown_minutes: int, incoming_s
     return datetime.now(timezone.utc) - last_sent < timedelta(minutes=max(5, cooldown_minutes))
 
 
+def _record_auto_reopen_event(existing: dict[str, Any], updated: dict[str, Any], old_status: str) -> None:
+    try:
+        supabase.insert(
+            "eletrofrio_anomaly_events",
+            {
+                "anomaly_id": updated.get("id") or existing.get("id"),
+                "customer_id": updated.get("customer_id") or existing.get("customer_id"),
+                "event_type": "reopened",
+                "old_status": old_status,
+                "new_status": "reopened",
+                "title": "Anomalia reaberta automaticamente",
+                "description": "A mesma condição perigosa voltou dentro da janela operacional configurada.",
+                "metadata": {
+                    "source": "automatic_collector",
+                    "anomaly_key": updated.get("anomaly_key") or existing.get("anomaly_key"),
+                    "reopen_window_hours": settings.anomaly_reopen_window_hours,
+                    "value": updated.get("value"),
+                    "severity": updated.get("severity"),
+                },
+            },
+        )
+    except SupabaseError as exc:
+        logger.debug("Histórico de reabertura indisponível; mantendo coleta ativa: %s", exc)
+
+
 def _register_anomaly(candidate: dict[str, Any], cooldown_minutes: int) -> tuple[dict[str, Any] | None, bool, int]:
     now = utc_now_iso()
-    existing = find_open_anomaly(candidate["anomaly_key"])
+    existing = find_operational_anomaly(candidate["anomaly_key"])
     if existing:
+        existing_status = str(existing.get("status") or "open")
+        recurrence_count = int(existing.get("recurrence_count") or 0) + (1 if existing_status in {"resolved", "ignored"} else 0)
         update = {
             "last_seen_at": now,
             "severity": candidate["severity"] if _severity_rank(candidate["severity"]) > _severity_rank(str(existing.get("severity") or "")) else existing.get("severity"),
@@ -142,11 +170,32 @@ def _register_anomaly(candidate: dict[str, Any], cooldown_minutes: int) -> tuple
             "message": candidate.get("message"),
             "metadata": candidate.get("metadata", {}),
         }
-        updated = patch_anomaly(existing["id"], update) or existing
+        if existing_status in {"resolved", "ignored"}:
+            update.update(
+                {
+                    "status": "reopened",
+                    "resolved_at": None,
+                    "reopened_at": now,
+                    "ignored_until": None,
+                    "recurrence_count": recurrence_count,
+                    "whatsapp_status": "pending_notification",
+                    "whatsapp_error": None,
+                }
+            )
+        try:
+            updated = patch_anomaly(existing["id"], update) or existing
+        except SupabaseError as exc:
+            optional_columns = {"reopened_at", "ignored_until", "recurrence_count", "whatsapp_status", "whatsapp_error"}
+            if not any(column in str(exc) for column in optional_columns):
+                raise
+            legacy_update = {key: value for key, value in update.items() if key not in optional_columns}
+            updated = patch_anomaly(existing["id"], legacy_update) or existing
+        if existing_status in {"resolved", "ignored"}:
+            _record_auto_reopen_event(existing, updated, existing_status)
         if _cooldown_active(existing, cooldown_minutes, candidate["severity"]):
             logger.info("Anomalia existente em cooldown: %s", candidate["anomaly_key"])
             return updated, False, 0
-        logger.info("Anomalia existente atualizada: %s", candidate["anomaly_key"])
+        logger.info("Anomalia existente atualizada/reaberta: %s", candidate["anomaly_key"])
         return updated, False, 0
 
     anomaly = insert_anomaly({**candidate, "detected_at": now, "last_seen_at": now})

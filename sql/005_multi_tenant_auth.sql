@@ -1,8 +1,6 @@
 -- Controle multi-cliente Eletrofrio/JA.
 -- Idempotente: pode ser executado mais de uma vez no Supabase SQL Editor.
 
-create extension if not exists pgcrypto;
-
 create table if not exists public.eletrofrio_customers (
   id uuid primary key default gen_random_uuid(),
   slug text unique not null,

@@ -138,7 +138,11 @@ def equipment_label(item: dict[str, Any]) -> str:
 
 
 def build_single_message(item: dict[str, Any], panel_url: str = "") -> str:
-    action = item.get("recommended_action") or "validar sensor, porta, carga térmica e condição do sistema de refrigeração."
+    public_code = _clean(item.get("public_code"), "")
+    if not public_code:
+        raise ValueError("Ocorrência sem código público não pode ser enviada por WhatsApp.")
+    action = item.get("recommended_action") or "Validar sensor, porta, carga térmica e condição do sistema de refrigeração."
+    technical_reason = _clean(item.get("technical_reason"), "")
     identity_lines = []
     customer = customer_label(item)
     if customer:
@@ -149,28 +153,32 @@ def build_single_message(item: dict[str, Any], panel_url: str = "") -> str:
             f"🧊 *Equipamento:* {equipment_label(item)}",
         ]
     )
-    return "\n".join(
-        [
-            "*Eletrofrio Refrigeração*",
-            priority_heading(item.get("severity")),
-            "",
-            *identity_lines,
-            "",
-            "📌 *O que aconteceu*",
-            problem_label(item),
-            "",
-            "🌡️ *Leitura*",
-            f"Atual: {_format_value(item.get('value'))}",
-            f"Esperado: {_expected_range_label(item.get('expected_range'))}",
-            "",
-            "✅ *Próximo passo*",
-            _clean(action),
-            "",
-            "_Diagnóstico inicial. Confirme a condição no local antes de acionar manutenção._",
-            "",
-            portal_footer(panel_url),
-        ]
-    )
+    lines = [
+        "*Eletrofrio Refrigeração*",
+        priority_heading(item.get("severity")),
+        "",
+        *identity_lines,
+        f"🆔 *Código:* {public_code}",
+        "",
+        "📌 *Erro detectado*",
+        problem_label(item),
+        "" if technical_reason else None,
+        "🔍 *Evidência técnica*" if technical_reason else None,
+        technical_reason or None,
+        "",
+        "🌡️ *Leitura*",
+        f"Atual: {_format_value(item.get('value'))}",
+        f"Esperado: {_expected_range_label(item.get('expected_range'))}",
+        "",
+        "✅ *Solução recomendada*",
+        _clean(action),
+        "",
+        "_Diagnóstico inicial. Confirme a condição no local antes de acionar manutenção._",
+        f"_Use o código {public_code} no painel para ver detalhes e possível solução._",
+        "",
+        portal_footer(panel_url),
+    ]
+    return "\n".join(line for line in lines if line is not None)
 
 
 def build_group_message(items: list[dict[str, Any]], panel_url: str = "") -> str:

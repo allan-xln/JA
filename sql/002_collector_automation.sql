@@ -1,8 +1,6 @@
 -- Automation layer for the Eletrofrio collector.
 -- Run this file in Supabase SQL editor after 001_initial_schema.sql.
 
-create extension if not exists pgcrypto;
-
 create table if not exists eletrofrio_collector_settings (
   id text primary key default 'default',
   enabled boolean not null default false,

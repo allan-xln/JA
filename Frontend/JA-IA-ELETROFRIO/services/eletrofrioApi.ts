@@ -1,5 +1,12 @@
 import type {
   ApiListResponse,
+  AnomalyDetail,
+  AnomalyEvent,
+  AnomalyListResponse,
+  AnomalyNote,
+  AnomalySolutionResponse,
+  AnomalyTicketResponse,
+  AnomalyWhatsappResponse,
   AuthLoginResponse,
   AuthUser,
   AssistantAnswer,
@@ -36,6 +43,7 @@ const PUBLIC_API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ||
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
   "";
+const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
 
 function isLocalBackendUrl(url: string) {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url);
@@ -82,11 +90,15 @@ async function apiFetch<T>(
   const apiBaseUrl = getApiBaseUrl();
   const url = `${apiBaseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
   const token = getAuthToken();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+  const signal = options.signal || controller.signal;
 
   let response: Response;
   try {
     response = await fetch(url, {
       ...options,
+      signal,
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -94,8 +106,13 @@ async function apiFetch<T>(
       },
       cache: options.cache ?? "no-store",
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("A consulta operacional demorou demais. Tente atualizar novamente em alguns instantes.");
+    }
     throw new Error("Não foi possível conectar ao backend operacional. Verifique se a API está ativa e tente novamente.");
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (!response.ok) {
@@ -312,6 +329,61 @@ export const eletrofrioApi = {
     apiFetch<ApiListResponse<EletrofrioAnomaly>>(
       `/api/collector/anomalies?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ""}`
     ),
+  anomalies: (params: { limit?: number; offset?: number; status?: string; severity?: string; search?: string } = {}) => {
+    const query = new URLSearchParams();
+    query.set("limit", String(params.limit ?? 100));
+    if (params.offset) query.set("offset", String(params.offset));
+    if (params.status) query.set("status", params.status);
+    if (params.severity && params.severity !== "all") query.set("severity", params.severity);
+    if (params.search) query.set("search", params.search);
+    return apiFetch<AnomalyListResponse>(`/api/eletrofrio/anomalies?${query.toString()}`);
+  },
+  anomalyDetail: (id: string) =>
+    apiFetch<AnomalyDetail>(`/api/eletrofrio/anomalies/${id}`),
+  anomalyByCode: (publicCode: string) =>
+    apiFetch<AnomalyDetail>(`/api/eletrofrio/anomalies/by-code/${encodeURIComponent(publicCode)}`),
+  searchAnomalyByCode: (publicCode: string) =>
+    apiFetch<AnomalyDetail>(`/api/eletrofrio/anomalies/search?code=${encodeURIComponent(publicCode)}`),
+  ensureAnomalyPublicCode: (id: string) =>
+    apiFetch<EletrofrioAnomaly>(`/api/eletrofrio/anomalies/${id}/ensure-public-code`, {
+      method: "POST",
+    }),
+  anomalyEvents: (id: string) =>
+    apiFetch<ApiListResponse<AnomalyEvent>>(`/api/eletrofrio/anomalies/${id}/events`),
+  suggestAnomalySolution: (id: string) =>
+    apiFetch<AnomalySolutionResponse>(`/api/eletrofrio/anomalies/${id}/suggest-solution`, {
+      method: "POST",
+    }),
+  sendAnomalyWhatsapp: (id: string, payload: { recipient_id?: string; phone?: string; confirm_duplicate?: boolean } = {}) =>
+    apiFetch<AnomalyWhatsappResponse>(`/api/eletrofrio/anomalies/${id}/send-whatsapp`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  resolveOperationalAnomaly: (id: string, note?: string) =>
+    apiFetch<EletrofrioAnomaly>(`/api/eletrofrio/anomalies/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    }),
+  reopenOperationalAnomaly: (id: string, note?: string) =>
+    apiFetch<EletrofrioAnomaly>(`/api/eletrofrio/anomalies/${id}/reopen`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    }),
+  updateOperationalAnomalyStatus: (id: string, status: string, note?: string) =>
+    apiFetch<EletrofrioAnomaly>(`/api/eletrofrio/anomalies/${id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, note }),
+    }),
+  addAnomalyNote: (id: string, note: string) =>
+    apiFetch<AnomalyNote>(`/api/eletrofrio/anomalies/${id}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    }),
+  openAnomalyTicket: (id: string, payload: { title?: string; description?: string; priority?: string; assigned_to?: string } = {}) =>
+    apiFetch<AnomalyTicketResponse>(`/api/eletrofrio/anomalies/${id}/ticket`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   resolveAnomaly: (id: string) =>
     apiFetch<EletrofrioAnomaly>(`/api/collector/anomalies/${id}/resolve`, {
       method: "POST",

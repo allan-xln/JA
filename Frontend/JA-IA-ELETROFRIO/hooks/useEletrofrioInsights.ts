@@ -19,6 +19,9 @@ export function useEletrofrioInsights(enabled = true) {
       setError(null);
       const response = await eletrofrioApi.insights(120);
       setInsights(response.items || []);
+      if (response.data_unavailable) {
+        setError(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar insights.");
     } finally {

@@ -1,7 +1,7 @@
 import { config } from "./config.js";
 import { logCommunication, logWhatsappMessage } from "./communicationLog.js";
 import { sendWhatsAppMessage } from "./messageSender.js";
-import { patchRows, selectRows } from "./supabase.js";
+import { patchRows, rpc, selectRows } from "./supabase.js";
 import { getConnectedPhone, getWhatsAppStatus } from "./whatsappClient.js";
 
 type Insight = {
@@ -24,6 +24,7 @@ type Insight = {
 
 type Anomaly = {
   id: string;
+  public_code: string | null;
   status: string;
   severity: "info" | "warning" | "critical" | string;
   loja_id: number | null;
@@ -45,6 +46,7 @@ type Anomaly = {
 type NotificationItem = {
   source: "insight" | "anomaly";
   id: string;
+  public_code: string | null;
   severity: string;
   loja_id: number | null;
   loja_nome: string | null;
@@ -85,6 +87,7 @@ type IgnoreReason =
   | "whatsapp_disabled"
   | "no_recipients"
   | "already_sent"
+  | "missing_public_code"
   | "insufficient_evidence"
   | "low_priority"
   | "device_cooldown"
@@ -241,6 +244,7 @@ function summaryTotals(items: NotificationItem[]): SummaryTotals {
 
 function shouldNotifyItem(item: NotificationItem) {
   const severity = normalize(item.severity || "");
+  if (!item.public_code) return false;
   if (item.whatsapp_sent_at) return false;
   if (!hasEnoughEvidence(item)) return false;
   if (["critical", "critico", "critica"].includes(severity)) return true;
@@ -251,6 +255,7 @@ function shouldNotifyItem(item: NotificationItem) {
 
 function ignoreReasonForItem(item: NotificationItem): IgnoreReason | null {
   if (item.whatsapp_sent_at) return "already_sent";
+  if (!item.public_code) return "missing_public_code";
   if (!hasEnoughEvidence(item)) return "insufficient_evidence";
   if (!shouldNotifyItem(item)) return "low_priority";
   return null;
@@ -315,6 +320,7 @@ function formatOperationalMessage(item: NotificationItem) {
     "",
     `🏬 *Loja:* ${loja}`,
     `🧊 *Equipamento:* ${equipamento}`,
+    `🆔 *Código:* ${item.public_code}`,
     `🎯 *Prioridade:* ${severity}`,
     ruleName ? `📏 *Regra:* ${ruleName}` : "",
     evidenceLevel ? `📌 *Evidência:* ${evidenceLevel}` : "",
@@ -326,6 +332,7 @@ function formatOperationalMessage(item: NotificationItem) {
     action,
     "",
     "_Diagnóstico inicial. Confirme a condição no local antes de acionar manutenção._",
+    `_Use o código ${item.public_code} no painel para ver detalhes e possível solução._`,
     "",
     portalFooter(),
   ]
@@ -351,6 +358,7 @@ function formatSummaryItem(item: NotificationItem, index: number) {
 
   return [
     `${index}. ${icon} *${loja}*`,
+    `   🆔 ${item.public_code}`,
     `   🧊 ${equipamento}`,
     `   • Prioridade: *${severity}* | origem: ${source}`,
     `   • ${evidence}`,
@@ -432,6 +440,7 @@ function insightToItem(insight: Insight): NotificationItem {
   return {
     source: "insight",
     id: insight.id,
+    public_code: null,
     severity: insight.severity,
     loja_id: insight.loja_id,
     loja_nome: insight.loja_nome,
@@ -452,6 +461,7 @@ function anomalyToItem(anomaly: Anomaly): NotificationItem {
   return {
     source: "anomaly",
     id: anomaly.id,
+    public_code: anomaly.public_code,
     severity: anomaly.severity,
     loja_id: anomaly.loja_id,
     loja_nome: anomaly.loja_nome,
@@ -467,6 +477,12 @@ function anomalyToItem(anomaly: Anomaly): NotificationItem {
     created_at: anomaly.detected_at,
     whatsapp_sent_at: anomaly.whatsapp_sent_at,
   };
+}
+
+async function ensureAnomalyPublicCode(anomaly: Anomaly): Promise<Anomaly> {
+  if (anomaly.public_code) return anomaly;
+  const publicCode = await rpc<string>("ensure_eletrofrio_anomaly_public_code", { p_anomaly_id: anomaly.id });
+  return { ...anomaly, public_code: publicCode };
 }
 
 async function patchSent(item: NotificationItem) {
@@ -488,21 +504,14 @@ async function latestSuccessfulRun() {
 }
 
 async function currentNotificationItems() {
-  const recentInsights = await selectRows<Insight>("eletrofrio_ai_insights", {
-    select: "*",
-    order: "created_at.desc",
-    limit: 120,
-  });
   const openAnomalies = await selectRows<Anomaly>("eletrofrio_anomalies", {
     select: "*",
-    status: "eq.open",
+    status: "in.(open,reopened,acknowledged,investigating,solution_suggested,ticket_opened)",
     order: "detected_at.desc",
     limit: 120,
   });
-  return [
-    ...openAnomalies.map(anomalyToItem),
-    ...recentInsights.map(insightToItem),
-  ];
+  const codedAnomalies = await Promise.all(openAnomalies.map(ensureAnomalyPublicCode));
+  return codedAnomalies.map(anomalyToItem);
 }
 
 async function selectSummaryItems(items: NotificationItem[]) {
@@ -740,23 +749,18 @@ export async function processPendingInsights() {
     };
   }
 
-  const pendingInsights = await selectRows<Insight>("eletrofrio_ai_insights", {
-    select: "*",
-    whatsapp_sent_at: "is.null",
-    order: "created_at.asc",
-    limit: 50,
-  });
   const pendingAnomalies = await selectRows<Anomaly>("eletrofrio_anomalies", {
     select: "*",
-    status: "eq.open",
+    status: "in.(open,reopened,acknowledged,investigating,solution_suggested,ticket_opened)",
     whatsapp_sent_at: "is.null",
     order: "detected_at.asc",
     limit: 50,
   });
-  const pending = [
-    ...pendingAnomalies.map(anomalyToItem),
-    ...pendingInsights.map(insightToItem),
-  ].sort((left, right) => String(left.created_at).localeCompare(String(right.created_at))).slice(0, 80);
+  const codedAnomalies = await Promise.all(pendingAnomalies.map(ensureAnomalyPublicCode));
+  const pending = codedAnomalies
+    .map(anomalyToItem)
+    .sort((left, right) => String(left.created_at).localeCompare(String(right.created_at)))
+    .slice(0, 80);
 
   let eligible = 0;
   let sent = 0;
@@ -821,7 +825,12 @@ export async function processPendingInsights() {
           message,
           status: "failed",
           source: "sistema",
-          payload_json: { item_id: item.id, item_source: item.source, error: error instanceof Error ? error.message : String(error) },
+          payload_json: {
+            item_id: item.id,
+            item_source: item.source,
+            public_code: item.public_code,
+            error: error instanceof Error ? error.message : String(error),
+          },
         });
         continue;
       }
@@ -837,7 +846,12 @@ export async function processPendingInsights() {
         message,
         status: "sent",
         source: "sistema",
-        payload_json: { item_id: item.id, item_source: item.source, severity: item.severity },
+        payload_json: {
+          item_id: item.id,
+          item_source: item.source,
+          public_code: item.public_code,
+          severity: item.severity,
+        },
       });
       sent += 1;
     }
@@ -860,7 +874,7 @@ export async function processPendingInsights() {
     recipient_source: config.allowedRecipients.length ? "allowed_list" : "connected_phone",
     analyzed_by_source: {
       anomalies: pendingAnomalies.length,
-      insights: pendingInsights.length,
+      insights: 0,
     },
     simulated_messages: simulatedMessages,
     notified,

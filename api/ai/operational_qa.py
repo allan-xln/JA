@@ -11,11 +11,13 @@ from typing import Any
 
 import requests
 
+from api.anomaly_public_code import extract_public_code, find_anomaly_by_public_code
 from api.ai.knowledge_context import rules_for_terms
 from api.analysis.metrics import build_metrics
 from api.analysis.rules import classify_alarm_severity
 from api.auth import TenantScope
 from api.config import settings
+from api.database import supabase
 from api.logger import logger
 from api.repositories import (
     list_alarms,
@@ -53,6 +55,7 @@ INTENTS = {
     "temperature_risk",
     "trend_analysis",
     "unknown_question",
+    "anomaly_code_lookup",
 }
 
 FAST_LOCAL_INTENTS = {
@@ -81,6 +84,7 @@ INTENT_LABELS = {
     "temperature_risk": "Risco por temperatura",
     "trend_analysis": "Tendência operacional",
     "unknown_question": "Pergunta não classificada",
+    "anomaly_code_lookup": "Consulta por código da ocorrência",
 }
 
 SOURCE_PRIORITY = {
@@ -382,6 +386,8 @@ def _similarity(left: str, right: str) -> float:
 
 
 def detect_intent(question: str) -> str:
+    if extract_public_code(question):
+        return "anomaly_code_lookup"
     q = _norm(question)
     if "loja" in q and any(term in q for term in ("critica", "criticas", "critico", "criticos", "maior risco", "mais risco")):
         return "top_critical_stores"
@@ -414,6 +420,120 @@ def detect_intent(question: str) -> str:
     if any(term in q for term in ("equipamento", "compressor", "dispositivo")):
         return "status_device"
     return "unknown_question"
+
+
+def _scope_payload(scope: TenantScope | None) -> dict[str, Any]:
+    return {
+        "label": scope.label if scope else "Visão administrativa",
+        "role": scope.role if scope else "admin",
+        "customer_id": scope.customer_id if scope and not scope.is_admin else None,
+        "customer_name": scope.customer_name if scope and not scope.is_admin else None,
+        "allowed_loja_ids": sorted(scope.allowed_loja_ids) if scope and not scope.is_admin else [],
+        "allowed_dispositivo_ids": sorted(scope.allowed_dispositivo_ids) if scope and not scope.is_admin else [],
+    }
+
+
+def _answer_by_public_code(question: str, scope: TenantScope | None) -> dict[str, Any]:
+    public_code = extract_public_code(question)
+    anomaly = None
+    lookup_error: str | None = None
+    if public_code:
+        try:
+            anomaly = find_anomaly_by_public_code(public_code, scope)
+        except Exception as exc:
+            lookup_error = str(exc)
+            logger.warning("Consulta de ocorrência por código indisponível para %s: %s", public_code, exc)
+    if not public_code or not anomaly:
+        answer = "Não encontrei essa ocorrência no seu ambiente. Confira o código informado e tente novamente."
+        if lookup_error:
+            answer = "A busca por código está temporariamente indisponível. Tente novamente em alguns instantes."
+        return {
+            "answer": answer,
+            "intent": "anomaly_code_lookup",
+            "intent_label": INTENT_LABELS["anomaly_code_lookup"],
+            "confidence": 0.0,
+            "confidence_label": "Baixa",
+            "confidence_reason": "Busca indisponível." if lookup_error else "Código inexistente ou fora do ambiente autorizado.",
+            "summary": answer,
+            "key_findings": [],
+            "recommended_actions": ["Confira o código no formato OC-AAAAMMDD-NNNN."],
+            "sources": [],
+            "warnings": [
+                "Busca por código indisponível temporariamente."
+                if lookup_error
+                else "Ocorrência não encontrada ou sem permissão para visualizar."
+            ],
+            "used_ai": False,
+            "used_openai": False,
+            "model": None,
+            "question": question,
+            "bullet_points": [],
+            "scope": _scope_payload(scope),
+        }
+
+    latest_solution = None
+    try:
+        rows = supabase.select(
+            "eletrofrio_anomaly_ai_solutions",
+            {"select": "*", "anomaly_id": f"eq.{anomaly['id']}", "order": "created_at.desc", "limit": 1},
+        )
+        latest_solution = rows[0] if rows else None
+    except Exception as exc:
+        logger.debug("Solução salva indisponível para %s: %s", public_code, exc)
+
+    solution_json = latest_solution.get("solution_json") if isinstance(latest_solution, dict) else {}
+    if not isinstance(solution_json, dict):
+        solution_json = {}
+    action = (
+        solution_json.get("immediate_action")
+        or solution_json.get("technical_action")
+        or anomaly.get("recommended_action")
+        or "Abra a ocorrência no painel para gerar uma sugestão de correção com os dados atuais."
+    )
+    problem = anomaly.get("message") or anomaly.get("summary") or anomaly.get("title") or "Ocorrência operacional"
+    store = anomaly.get("loja_nome") or anomaly.get("loja_id") or "loja não identificada"
+    equipment = anomaly.get("tag") or anomaly.get("dispositivo_id") or anomaly.get("equipment_id") or "equipamento não identificado"
+    status = anomaly.get("status") or "open"
+    severity = anomaly.get("severity") or "não informada"
+    answer = (
+        f"Ocorrência {public_code}: {problem} Loja: {store}. Equipamento: {equipment}. "
+        f"Prioridade: {severity}. Status: {status}. Possível solução: {action} "
+        "A causa raiz deve ser confirmada em campo."
+    )
+    return {
+        "answer": answer,
+        "intent": "anomaly_code_lookup",
+        "intent_label": INTENT_LABELS["anomaly_code_lookup"],
+        "confidence": 0.96,
+        "confidence_label": "Alta",
+        "confidence_reason": "Ocorrência localizada pelo código público no ambiente autorizado.",
+        "summary": answer,
+        "key_findings": [
+            f"Código: {public_code}.",
+            f"Loja: {store}; equipamento: {equipment}.",
+            f"Prioridade: {severity}; status: {status}.",
+        ],
+        "recommended_actions": [str(action), "Confirmar a causa raiz no local antes de concluir o diagnóstico."],
+        "sources": [
+            {
+                "type": "anomaly",
+                "id": str(anomaly.get("id")),
+                "label": f"Ocorrência {public_code}",
+                "loja_nome": anomaly.get("loja_nome"),
+                "tag": anomaly.get("tag"),
+                "timestamp": anomaly.get("last_seen_at") or anomaly.get("detected_at"),
+                "relevance_reason": "Ocorrência localizada diretamente pelo código público informado.",
+            }
+        ],
+        "warnings": [],
+        "used_ai": False,
+        "used_openai": False,
+        "model": latest_solution.get("model") if isinstance(latest_solution, dict) else None,
+        "question": question,
+        "bullet_points": [],
+        "scope": _scope_payload(scope),
+        "cached_solution": bool(latest_solution),
+    }
 
 
 def _extract_entities(question: str) -> dict[str, Any]:
@@ -1175,6 +1295,11 @@ def answer_operational_question(question: str, origin: str = "panel", scope: Ten
     confidence = 0.0
     source_count = 0
     try:
+        if intent == "anomaly_code_lookup":
+            response = _answer_by_public_code(question, scope)
+            confidence = float(response.get("confidence") or 0)
+            source_count = len(response.get("sources") or [])
+            return response
         context = retrieve_operational_context(question, intent, scope)
         local = _build_local_response(context)
         if context.get("retrieval_warnings"):

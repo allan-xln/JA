@@ -1,7 +1,21 @@
 -- Notifications and performance layer for Eletrofrio/JA.
 -- Safe to run multiple times in Supabase SQL Editor.
 
-create extension if not exists pgcrypto;
+do $$
+begin
+  if to_regprocedure('gen_random_uuid()') is null then
+    raise exception 'gen_random_uuid() is unavailable. Enable pgcrypto separately before migration 006.';
+  end if;
+  if to_regclass('public.eletrofrio_customers') is null
+    or to_regclass('public.eletrofrio_anomalies') is null
+    or to_regclass('public.eletrofrio_ai_insights') is null
+    or to_regclass('public.eletrofrio_collector_runs') is null
+    or to_regclass('public.eletrofrio_alarms') is null
+    or to_regclass('public.eletrofrio_telemetry') is null
+  then
+    raise exception 'Migration 006 prerequisites are missing. Apply the base schema, runtime schema and migration 005 first.';
+  end if;
+end $$;
 
 create or replace function public.set_eletrofrio_notifications_updated_at()
 returns trigger as $$

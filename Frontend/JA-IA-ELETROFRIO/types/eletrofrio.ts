@@ -2,6 +2,8 @@ export type Severity = "info" | "warning" | "critical" | string;
 
 export type ApiListResponse<T> = {
   items: T[];
+  data_unavailable?: boolean;
+  message?: string;
 };
 
 export type AuthUser = {
@@ -184,6 +186,9 @@ export type EletrofrioOverview = {
   top_critical_stores: StoreMetric[];
   latest_insights?: EletrofrioInsight[];
   scope?: AuthUser;
+  data_unavailable?: boolean;
+  stale?: boolean;
+  message?: string;
 };
 
 export type WhatsappStatus = {
@@ -392,29 +397,171 @@ export type CollectorRun = {
 
 export type EletrofrioAnomaly = {
   id: string;
-  anomaly_key: string;
+  public_code?: string | null;
+  public_code_created_at?: string | null;
+  related_public_code?: string | null;
+  anomaly_key?: string;
+  anomaly_hash?: string | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
   sensor_id: string | null;
   equipment_id: number | null;
+  dispositivo_id?: number | null;
   loja_id: number | null;
   loja_nome: string | null;
   tag: string | null;
   type: string;
+  title?: string | null;
+  summary?: string | null;
   severity: string;
   value: number | null;
+  value_label?: string | null;
   expected_range: Record<string, unknown> | null;
+  expected_range_label?: string | null;
+  deviation?: number | null;
+  deviation_label?: string | null;
   message: string;
   technical_reason?: string | null;
   recommended_action?: string | null;
   evidence_json?: Record<string, unknown> | null;
   detected_at: string;
   last_seen_at: string;
+  open_hours?: number;
+  recurrence_count?: number;
+  priority_score?: number;
+  acknowledged_at?: string | null;
+  reopened_at?: string | null;
+  ignored_until?: string | null;
   resolved_at: string | null;
-  status: "open" | "resolved" | "ignored" | string;
+  status:
+    | "open"
+    | "acknowledged"
+    | "investigating"
+    | "solution_suggested"
+    | "whatsapp_sent"
+    | "ticket_opened"
+    | "resolved"
+    | "reopened"
+    | "ignored"
+    | string;
   source: string;
   metadata: Record<string, unknown>;
   whatsapp_sent_at: string | null;
   whatsapp_status: string | null;
   whatsapp_error: string | null;
+  ticket_opened_at?: string | null;
+  last_solution_hash?: string | null;
+  last_solution_at?: string | null;
+  last_solution_json?: Record<string, unknown> | null;
+};
+
+export type AnomalyEvent = {
+  id: string;
+  anomaly_id: string;
+  customer_id: string | null;
+  public_code?: string | null;
+  user_id: string | null;
+  event_type: string;
+  old_status: string | null;
+  new_status: string | null;
+  title: string;
+  description: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  synthetic?: boolean;
+};
+
+export type AnomalyNote = {
+  id: string;
+  anomaly_id: string;
+  customer_id: string | null;
+  user_id: string | null;
+  author_name: string | null;
+  note: string;
+  created_at: string;
+};
+
+export type AnomalyTicket = {
+  id: string;
+  anomaly_id: string;
+  customer_id: string | null;
+  public_code?: string | null;
+  title: string;
+  description: string;
+  priority: string;
+  status: string;
+  assigned_to: string | null;
+  external_ticket_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AnomalyAiSolution = {
+  id: string | null;
+  anomaly_id: string;
+  customer_id: string | null;
+  user_id?: string | null;
+  solution_hash?: string | null;
+  model?: string | null;
+  used_ai?: boolean;
+  cached?: boolean;
+  prompt_context?: Record<string, unknown>;
+  solution_json: {
+    diagnosis?: string;
+    probable_cause?: string;
+    alternative_causes?: string[];
+    immediate_action?: string;
+    technical_action?: string;
+    urgency?: string;
+    risk?: string;
+    field_technician_required?: string;
+    whatsapp_message?: string;
+    root_cause_note?: string;
+    fallback_reason?: string | null;
+    [key: string]: unknown;
+  };
+  solution_text?: string | null;
+  error_message?: string | null;
+  created_at?: string | null;
+};
+
+export type AnomalyDetail = EletrofrioAnomaly & {
+  events: AnomalyEvent[];
+  notes: AnomalyNote[];
+  tickets: AnomalyTicket[];
+  latest_solution: AnomalyAiSolution | null;
+};
+
+export type AnomalyListResponse = {
+  items: EletrofrioAnomaly[];
+  count: number;
+  limit: number;
+  offset: number;
+  data_unavailable?: boolean;
+  message?: string;
+};
+
+export type AnomalySolutionResponse = {
+  solution: AnomalyAiSolution;
+  cached: boolean;
+  anomaly: EletrofrioAnomaly;
+};
+
+export type AnomalyWhatsappResponse = {
+  status: string;
+  sent: boolean;
+  dry_run?: boolean;
+  phone?: string | null;
+  provider_message_id?: string | null;
+  error_message?: string | null;
+  message?: string;
+  anomaly?: EletrofrioAnomaly;
+};
+
+export type AnomalyTicketResponse = {
+  ticket: AnomalyTicket;
+  anomaly: EletrofrioAnomaly;
 };
 
 export type AssistantAnswer = {

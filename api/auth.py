@@ -178,7 +178,7 @@ def _customer_name(customer_id: str | None, store: dict[str, Any] | None = None)
         if str(customer.get("id")) == str(customer_id):
             return customer.get("name")
     try:
-        rows = supabase.select("eletrofrio_customers", {"select": "name", "id": f"eq.{customer_id}", "limit": 1})
+        rows = supabase.select("eletrofrio_customers", {"select": "name", "id": f"eq.{customer_id}", "limit": 1}, timeout=4, attempts=1)
         return rows[0].get("name") if rows else None
     except Exception:
         return None
@@ -197,10 +197,14 @@ def scope_for_user(user: dict[str, Any], store: dict[str, Any] | None = None) ->
         unit_rows = supabase.select(
             "eletrofrio_customer_units",
             {"select": "loja_id", "customer_id": f"eq.{customer_id}", "limit": 5000},
+            timeout=4,
+            attempts=1,
         )
         device_rows = supabase.select(
             "eletrofrio_customer_devices",
             {"select": "dispositivo_id", "customer_id": f"eq.{customer_id}", "limit": 5000},
+            timeout=4,
+            attempts=1,
         )
     except Exception as exc:
         if not _schema_missing(exc):
@@ -253,7 +257,7 @@ def authenticate_user(username: str, password: str) -> AuthUser | None:
     user: dict[str, Any] | None = None
     store: dict[str, Any] | None = None
     try:
-        rows = supabase.select("eletrofrio_users", {"select": "*", "username": f"eq.{username}", "limit": 1})
+        rows = supabase.select("eletrofrio_users", {"select": "*", "username": f"eq.{username}", "limit": 1}, timeout=5, attempts=1)
         user = rows[0] if rows else None
     except SupabaseError as exc:
         if not _schema_missing(exc):
@@ -290,28 +294,33 @@ def create_session(user: AuthUser) -> str:
         "expires_at": expires_at.isoformat(),
         "created_at": utc_now_iso(),
     }
+    _memory_sessions[token_hash] = {**payload, "user": user.public_dict(), "id": user.id}
     try:
-        supabase.insert("eletrofrio_sessions", payload)
+        supabase.insert("eletrofrio_sessions", payload, timeout=4, attempts=1)
     except SupabaseError as exc:
         if not _schema_missing(exc):
             logger.warning("Falha ao persistir sessao no Supabase; usando sessao local: %s", exc)
-        _memory_sessions[token_hash] = {**payload, "user": user.public_dict(), "id": user.id}
     return token
 
 
 def _user_from_session_hash(token_hash: str) -> AuthUser | None:
     session = None
     store = None
+    session = _memory_sessions.get(token_hash)
+    if session:
+        store = _load_demo_store()
     try:
-        rows = supabase.select("eletrofrio_sessions", {"select": "*", "token_hash": f"eq.{token_hash}", "limit": 1})
-        session = rows[0] if rows else None
+        if not session:
+            rows = supabase.select(
+                "eletrofrio_sessions",
+                {"select": "*", "token_hash": f"eq.{token_hash}", "limit": 1},
+                timeout=4,
+                attempts=1,
+            )
+            session = rows[0] if rows else None
     except SupabaseError as exc:
         if not _schema_missing(exc):
             logger.warning("Falha ao carregar sessao no Supabase: %s", exc)
-    if not session:
-        session = _memory_sessions.get(token_hash)
-        if session:
-            store = _load_demo_store()
 
     if not session:
         return None
@@ -331,7 +340,12 @@ def _user_from_session_hash(token_hash: str) -> AuthUser | None:
         }
     else:
         try:
-            rows = supabase.select("eletrofrio_users", {"select": "*", "id": f"eq.{session.get('user_id')}", "limit": 1})
+            rows = supabase.select(
+                "eletrofrio_users",
+                {"select": "*", "id": f"eq.{session.get('user_id')}", "limit": 1},
+                timeout=4,
+                attempts=1,
+            )
             user_row = rows[0] if rows else None
         except SupabaseError as exc:
             if not _schema_missing(exc):

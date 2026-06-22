@@ -53,3 +53,13 @@ export async function insertRows<T>(
   if (!response.ok) throw new Error(`Supabase insert ${table} falhou: ${response.status} ${await response.text()}`);
   return (await response.json()) as T[];
 }
+
+export async function rpc<T>(functionName: string, payload: Record<string, unknown> = {}): Promise<T> {
+  const response = await fetch(tableUrl(`rpc/${functionName}`), {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(`Supabase RPC ${functionName} falhou: ${response.status} ${await response.text()}`);
+  return (await response.json()) as T;
+}

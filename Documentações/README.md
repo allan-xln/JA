@@ -71,6 +71,11 @@ Tabelas de automação, quando aplicadas:
 
 - `eletrofrio_collector_settings`
 - `eletrofrio_anomalies`
+- `eletrofrio_anomaly_events`
+- `eletrofrio_anomaly_notes`
+- `eletrofrio_anomaly_tickets`
+- `eletrofrio_anomaly_ai_solutions`
+- `eletrofrio_retention_runs`
 
 Tabelas multi-cliente, quando aplicada a migration `sql/005_multi_tenant_auth.sql`:
 
@@ -167,6 +172,16 @@ O motor permite:
 - enriquecer ocorrências e mensagens de WhatsApp com regra, evidência e primeira ação.
 
 Assim, a IA fica como explicadora/sintetizadora. A decisão continua rastreável por regra, alarme, telemetria e histórico.
+
+### Ocorrências Operacionais
+
+Cada anomalia relevante vira uma ocorrência operacional com código público no formato `OC-AAAAMMDD-NNNN`. Esse código aparece no painel, pode ser copiado, enviado por WhatsApp e pesquisado para abrir diretamente o modal da ocorrência.
+
+O modal de ocorrência mostra dados técnicos, loja, equipamento, severidade, status, evidências, sugestão de correção por IA, envio por WhatsApp, observações, chamados internos e histórico completo. As ações principais registram eventos no histórico e respeitam o isolamento multi-cliente.
+
+### Retenção De Dados
+
+O projeto possui SQLs de retenção para evitar crescimento sem limite no Supabase. A migration `sql/009_data_retention_and_cleanup.sql` cria a camada de limpeza controlada. Para ambiente em plano free, o arquivo `sql/011_free_plan_retention_cleanup.sql` mantém uma janela curta de dados operacionais e preserva usuários, clientes, regras, destinatários, auth e sessão do WhatsApp.
 
 ### WhatsApp / Baileys
 

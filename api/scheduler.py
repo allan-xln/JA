@@ -8,6 +8,7 @@ from typing import Any
 
 from api.collector import run_collector_once
 from api.config import settings
+from api.data_retention import scheduled_retention_cleanup
 from api.database import supabase
 from api.logger import logger
 from api.repositories import (
@@ -26,6 +27,7 @@ _collector_lock = threading.Lock()
 _scheduler_task: asyncio.Task[None] | None = None
 _stop_event: asyncio.Event | None = None
 _fallback_settings: dict[str, Any] | None = None
+_last_retention_cleanup_at: datetime | None = None
 
 
 class CollectorBusyError(RuntimeError):
@@ -66,6 +68,22 @@ def _is_noisy_timeout_run(row: dict[str, Any] | None) -> bool:
             or (row.get("status") == "running" and _run_is_stale(row, max_age_minutes=5))
         )
     )
+
+
+def _maybe_run_retention_cleanup() -> None:
+    global _last_retention_cleanup_at
+    if not settings.retention_cleanup_enabled:
+        return
+    now = _now()
+    interval = timedelta(hours=max(1, settings.retention_cleanup_interval_hours))
+    if _last_retention_cleanup_at and now - _last_retention_cleanup_at < interval:
+        return
+    try:
+        scheduled_retention_cleanup()
+    except Exception as exc:
+        logger.warning("Limpeza de retenção operacional não executada: %s", exc)
+    finally:
+        _last_retention_cleanup_at = now
 
 
 def _run_is_stale(row: dict[str, Any], max_age_minutes: int = STALE_RUN_MINUTES) -> bool:
@@ -235,6 +253,7 @@ async def _scheduler_loop() -> None:
     logger.info("Scheduler interno Eletrofrio iniciado.")
     while _stop_event and not _stop_event.is_set():
         try:
+            await asyncio.to_thread(_maybe_run_retention_cleanup)
             current = _normalize_settings(get_collector_settings())
             if current["enabled"]:
                 next_run = _parse_dt(current.get("nextRunAt"))
@@ -288,6 +307,7 @@ def run_collector_loop() -> None:
     logger.info("Scheduler externo do coletor iniciado. Intervalo base=%ss", interval_seconds)
     while True:
         try:
+            _maybe_run_retention_cleanup()
             current = _normalize_settings(get_collector_settings())
             if not current["enabled"]:
                 logger.info("Coleta automática desativada; scheduler externo em espera.")

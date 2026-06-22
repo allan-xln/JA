@@ -1,8 +1,6 @@
 -- Runtime schema for collector automation, anomaly tracking and operational status.
 -- Safe to run multiple times in Supabase SQL Editor.
 
-create extension if not exists pgcrypto;
-
 create or replace function public.set_eletrofrio_updated_at()
 returns trigger as $$
 begin

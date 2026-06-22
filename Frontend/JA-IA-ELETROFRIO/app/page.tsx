@@ -19,6 +19,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { AnomalyOperationsView } from "@/components/anomalies/anomaly-operations-view";
 import { Header } from "@/components/layout/header";
 import { Sidebar, type ViewId } from "@/components/layout/sidebar";
 import { useEletrofrioInsights } from "@/hooks/useEletrofrioInsights";
@@ -682,10 +683,15 @@ function PaginationBar({
 }
 
 function ErrorBanner({ message }: { message: string }) {
+  const softNotice = /temporariamente indisponível|temporariamente indisponivel|schema .*ainda não aplicado|schema .*ainda nao aplicado/i.test(message);
+  const tone = softNotice
+    ? "border-amber-400/35 bg-amber-400/10 text-amber-900"
+    : "border-red-400/25 bg-red-400/10 text-red-900";
+  const textTone = softNotice ? "text-amber-800/80" : "text-red-800/80";
   return (
-    <section className="rounded-xl border border-red-400/25 bg-red-400/10 p-5 text-red-100 shadow-sm">
-      <p className="text-sm font-semibold">Atenção operacional</p>
-      <p className="mt-2 text-sm text-red-100/80">{message}</p>
+    <section className={"rounded-xl border p-5 shadow-sm " + tone}>
+      <p className="text-sm font-semibold">{softNotice ? "Aviso operacional" : "Atenção operacional"}</p>
+      <p className={"mt-2 text-sm " + textTone}>{message}</p>
     </section>
   );
 }
@@ -4005,7 +4011,7 @@ export default function HomePage() {
         loading={overviewState.loading}
       />
     ),
-    alertas: <InsightsView insights={insightsState.insights} loading={insightsState.loading} />,
+    alertas: <AnomalyOperationsView />,
     inteligentes: <IntelligentAlertsView insights={insightsState.insights} whatsapp={whatsapp} />,
     operacao: <OperationView />,
     regras: <RulesView canManage={isAdmin} />,
@@ -4048,7 +4054,7 @@ export default function HomePage() {
           <section className="app-main-content flex-1 px-2 pb-24 pt-3 sm:px-4 md:px-5 lg:px-6 lg:pb-6 lg:pt-4">
             <div key={activeView} className="app-content-view flex w-full min-w-0 flex-col gap-4">
               {overviewState.error ? <ErrorBanner message={overviewState.error} /> : null}
-              {insightsState.error && activeView === "alertas" ? (
+              {insightsState.error && activeView === "inteligentes" ? (
                 <ErrorBanner message={insightsState.error} />
               ) : null}
               {content[activeView]}

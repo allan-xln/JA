@@ -38,38 +38,51 @@ export function useEletrofrioOverview(enabled = true, loadDetails = false): Over
       setLoading(false);
       return;
     }
-    try {
-      setLoading(true);
-      setError(null);
-      const [healthData, overviewData] = await Promise.all([
-        eletrofrioApi.health(),
-        eletrofrioApi.overview(),
-      ]);
+    setLoading(true);
+    setError(null);
 
-      setHealth(healthData);
-      setOverview(overviewData);
+    const [healthResult, overviewResult] = await Promise.allSettled([
+      eletrofrioApi.health(),
+      eletrofrioApi.overview(),
+    ]);
 
-      if (!loadDetails) {
-        setLoading(false);
-        return;
-      }
-
-      const [unitsData, devicesData, alarmsData, telemetryData] = await Promise.all([
-        eletrofrioApi.units(),
-        eletrofrioApi.devices(),
-        eletrofrioApi.alarms(80),
-        eletrofrioApi.telemetry(80),
-      ]);
-
-      setUnits(unitsData.items || []);
-      setDevices(devicesData.items || []);
-      setAlarms(alarmsData.items || []);
-      setTelemetry(telemetryData.items || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao carregar dados reais.");
-    } finally {
-      setLoading(false);
+    if (healthResult.status === "fulfilled") {
+      setHealth(healthResult.value);
     }
+
+    if (overviewResult.status === "fulfilled") {
+      setOverview(overviewResult.value);
+    } else {
+      setError(overviewResult.reason instanceof Error ? overviewResult.reason.message : "Falha ao carregar dados reais.");
+      setLoading(false);
+      return;
+    }
+
+    if (!loadDetails) {
+      setLoading(false);
+      return;
+    }
+
+    const [unitsResult, devicesResult, alarmsResult, telemetryResult] = await Promise.allSettled([
+      eletrofrioApi.units(),
+      eletrofrioApi.devices(),
+      eletrofrioApi.alarms(80),
+      eletrofrioApi.telemetry(80),
+    ]);
+
+    if (unitsResult.status === "fulfilled") setUnits(unitsResult.value.items || []);
+    if (devicesResult.status === "fulfilled") setDevices(devicesResult.value.items || []);
+    if (alarmsResult.status === "fulfilled") setAlarms(alarmsResult.value.items || []);
+    if (telemetryResult.status === "fulfilled") setTelemetry(telemetryResult.value.items || []);
+
+    const failedDetail = [unitsResult, devicesResult, alarmsResult, telemetryResult].find(
+      (result) => result.status === "rejected",
+    );
+    if (failedDetail?.status === "rejected") {
+      setError(failedDetail.reason instanceof Error ? failedDetail.reason.message : "Falha ao carregar parte dos dados reais.");
+    }
+
+    setLoading(false);
   }, [enabled, loadDetails]);
 
   useEffect(() => {

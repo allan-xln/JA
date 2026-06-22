@@ -164,6 +164,80 @@ Processar fila operacional para WhatsApp:
 curl -X POST http://127.0.0.1:8000/api/eletrofrio/whatsapp/process-insights
 ```
 
+## Ocorrencias Operacionais
+
+Listar ocorrencias priorizadas:
+
+```bash
+curl 'http://127.0.0.1:8000/api/eletrofrio/anomalies?status=active&limit=20'
+```
+
+Buscar por codigo publico:
+
+```bash
+curl 'http://127.0.0.1:8000/api/eletrofrio/anomalies/search?code=OC-20260622-0001'
+```
+
+Abrir detalhe de uma ocorrencia:
+
+```bash
+curl http://127.0.0.1:8000/api/eletrofrio/anomalies/ID_DA_OCORRENCIA
+```
+
+Gerar sugestao de correcao:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/eletrofrio/anomalies/ID_DA_OCORRENCIA/suggest-solution
+```
+
+Enviar sugestao por WhatsApp:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/eletrofrio/anomalies/ID_DA_OCORRENCIA/send-whatsapp
+```
+
+Resolver, reabrir, adicionar observacao e abrir chamado:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/eletrofrio/anomalies/ID_DA_OCORRENCIA/resolve
+curl -X POST http://127.0.0.1:8000/api/eletrofrio/anomalies/ID_DA_OCORRENCIA/reopen
+curl -X POST http://127.0.0.1:8000/api/eletrofrio/anomalies/ID_DA_OCORRENCIA/notes \
+  -H "Content-Type: application/json" \
+  -d '{"note":"Tecnico acionado."}'
+curl -X POST http://127.0.0.1:8000/api/eletrofrio/anomalies/ID_DA_OCORRENCIA/ticket
+```
+
+No painel, a tela Ocorrencias mostra o codigo publico, abre o modal operacional
+por clique no card e permite pesquisar por `OC-AAAAMMDD-NNNN`.
+
+## Retencao / Plano Free
+
+Aplicar as migrations na ordem normal:
+
+```text
+001, 002_collector_runtime_schema, 003, 004, 005, 006, 007, 008, 009
+```
+
+Limpeza curta para Supabase no plano free:
+
+```text
+sql/011_free_plan_retention_cleanup.sql
+```
+
+Esse SQL preserva usuarios, clientes, regras, destinatarios, auth e sessao do
+WhatsApp. Ele apaga dados operacionais antigos em lote. Se algum notice voltar
+com `15000` linhas apagadas, rode o 011 novamente ate diminuir.
+
+Depois de uma limpeza grande, se o Supabase aceitar, rode separadamente:
+
+```sql
+vacuum analyze public.eletrofrio_telemetry;
+vacuum analyze public.eletrofrio_alarms;
+vacuum analyze public.eletrofrio_anomalies;
+vacuum analyze public.eletrofrio_ai_insights;
+vacuum analyze public.eletrofrio_notification_events;
+```
+
 ## Motor de Regras Operacionais
 
 ```bash

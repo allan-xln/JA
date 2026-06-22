@@ -427,9 +427,59 @@ def find_open_anomaly(anomaly_key: str) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+ACTIVE_ANOMALY_STATUSES = {
+    "open",
+    "acknowledged",
+    "investigating",
+    "solution_suggested",
+    "whatsapp_sent",
+    "ticket_opened",
+    "reopened",
+}
+
+
+def find_operational_anomaly(anomaly_key: str) -> dict[str, Any] | None:
+    rows = supabase.select(
+        "eletrofrio_anomalies",
+        {"select": "*", "anomaly_key": f"eq.{anomaly_key}", "order": "updated_at.desc", "limit": 8},
+    )
+    if not rows:
+        return None
+
+    for row in rows:
+        if str(row.get("status") or "open") in ACTIVE_ANOMALY_STATUSES:
+            return row
+
+    reopen_cutoff = datetime.now(timezone.utc) - timedelta(hours=max(1, settings.anomaly_reopen_window_hours))
+    for row in rows:
+        status = str(row.get("status") or "open")
+        if status not in {"resolved", "ignored"}:
+            continue
+        last_signal = (
+            parse_utc_datetime(row.get("last_seen_at"))
+            or parse_utc_datetime(row.get("resolved_at"))
+            or parse_utc_datetime(row.get("updated_at"))
+            or parse_utc_datetime(row.get("detected_at"))
+        )
+        if last_signal and last_signal >= reopen_cutoff:
+            return row
+
+    return None
+
+
 def insert_anomaly(row: dict[str, Any]) -> dict[str, Any] | None:
     rows = supabase.insert("eletrofrio_anomalies", row)
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    inserted = rows[0]
+    if not inserted.get("public_code"):
+        try:
+            from api.anomaly_public_code import ensure_public_code_on_row
+
+            inserted = ensure_public_code_on_row(inserted)
+        except Exception as exc:
+            logger.error("Anomalia criada sem código público; envio será bloqueado até correção: %s", exc)
+    return inserted
 
 
 def patch_anomaly(anomaly_id: str, data: dict[str, Any]) -> dict[str, Any] | None:

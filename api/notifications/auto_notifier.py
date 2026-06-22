@@ -10,14 +10,15 @@ from typing import Any
 
 import requests
 
+from api.anomaly_public_code import ensure_public_code_on_row
 from api.auth import DATA_DIR, TenantScope
 from api.communications import log_communication
 from api.config import settings
 from api.database import SupabaseError, supabase
 from api.logger import logger
-from api.notifications.message_builder import build_group_message, build_single_message, ensure_customer_context, portal_footer, preview
+from api.notifications.message_builder import build_single_message, ensure_customer_context, portal_footer, preview
 from api.notifications.notification_rules import local_relevance, severity_rank
-from api.repositories import filter_rows_by_scope, list_anomalies, list_insights, utc_now_iso
+from api.repositories import filter_rows_by_scope, list_anomalies, utc_now_iso
 
 
 NOTIFICATION_SCHEMA_MESSAGE = (
@@ -28,6 +29,7 @@ _logged_notification_schema_warnings: set[str] = set()
 AI_NOTIFICATION_SYSTEM_PROMPT = (
     "Você escreve como operador de refrigeração da Eletrofrio, de forma clara e direta para WhatsApp. "
     "Não diga que é IA e não invente causa raiz, valores, lojas ou sensores. "
+    "Apresente uma ocorrência por mensagem, separando claramente o problema detectado da solução recomendada. "
     "Se o campo cliente estiver presente nos dados, inclua o nome exatamente como recebido; se não estiver, omita cliente. "
     "Use poucos emojis, organize em linhas curtas, use negrito do WhatsApp com *texto* nos rótulos principais "
     "e mantenha tom profissional e amigável. "
@@ -166,7 +168,7 @@ def _load_customer_links() -> tuple[dict[int, str], dict[int, str]]:
 def _load_customer_names() -> dict[str, str]:
     names: dict[str, str] = {}
     try:
-        for row in supabase.select("eletrofrio_customers", {"select": "id,name", "limit": 10000}):
+        for row in supabase.select("eletrofrio_customers", {"select": "id,name", "limit": 10000}, timeout=4, attempts=1):
             customer_id = str(row.get("id") or "").strip()
             name = " ".join(str(row.get("name") or "").split())
             if customer_id and name:
@@ -239,7 +241,19 @@ def _normalize_insight(row: dict[str, Any], customer_id: str | None, customer_na
 
 
 def _notification_hash(item: dict[str, Any], recipient: dict[str, Any]) -> str:
-    return _hash([item.get("source_kind"), item.get("source_id"), recipient.get("id"), recipient.get("phone"), recipient.get("channel") or "whatsapp"])
+    recurrence_version = None
+    if item.get("source_kind") == "anomaly" and str(item.get("status") or "open") == "reopened":
+        recurrence_version = item.get("recurrence_count") or item.get("reopened_at") or "reopened"
+    return _hash(
+        [
+            item.get("source_kind"),
+            item.get("source_id"),
+            recurrence_version,
+            recipient.get("id"),
+            recipient.get("phone"),
+            recipient.get("channel") or "whatsapp",
+        ]
+    )
 
 
 def _event_exists(notification_hash: str, include_dry_run: bool = False) -> bool:
@@ -255,29 +269,6 @@ def _event_exists(notification_hash: str, include_dry_run: bool = False) -> bool
             },
         )
         return bool(rows)
-    except SupabaseError as exc:
-        if _schema_missing(exc):
-            return False
-        raise
-
-
-def _recipient_in_cooldown(recipient: dict[str, Any], include_dry_run: bool = True) -> bool:
-    cooldown = _clamp_cooldown_minutes(recipient.get("cooldown_minutes"))
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=cooldown)).isoformat()
-    params: dict[str, Any] = {
-        "select": "id,created_at",
-        "status": "in.(sent,dry_run)" if include_dry_run else "eq.sent",
-        "created_at": f"gte.{cutoff}",
-        "limit": 1,
-    }
-    if recipient.get("id") and recipient.get("source") != "env":
-        params["recipient_id"] = f"eq.{recipient['id']}"
-    elif recipient.get("phone"):
-        params["phone"] = f"eq.{recipient['phone']}"
-    else:
-        return False
-    try:
-        return bool(supabase.select("eletrofrio_notification_events", params))
     except SupabaseError as exc:
         if _schema_missing(exc):
             return False
@@ -308,6 +299,7 @@ def _compact_item_for_ai(row: dict[str, Any]) -> dict[str, Any]:
     evidence = row.get("evidence_json") if isinstance(row.get("evidence_json"), dict) else {}
     return {
         "source": row.get("source_kind"),
+        "codigo": row.get("public_code"),
         "cliente": row.get("customer_name"),
         "severity": row.get("severity"),
         "loja_nome": row.get("loja_nome"),
@@ -369,6 +361,11 @@ def _enrich_message_with_ai(rows: list[dict[str, Any]], local_message: str) -> t
         message = str(parsed.get("message") or parsed.get("answer") or "").strip()
         if not message:
             return local_message, False, "empty_ai_message"
+        normalized_message = message.casefold()
+        has_problem = any(label in normalized_message for label in ("erro detectado", "problema", "o que aconteceu"))
+        has_solution = any(label in normalized_message for label in ("solução recomendada", "solucao recomendada", "próximo passo", "proximo passo", "ação recomendada", "acao recomendada"))
+        if not has_problem or not has_solution:
+            return local_message, False, "missing_problem_or_solution_section"
         return _with_portal_footer(message[:1400]), True, None
     except Exception as exc:
         logger.warning("Falha ao enriquecer notificação com IA; usando template local: %s", exc)
@@ -510,6 +507,7 @@ def _insert_event(item: dict[str, Any], recipient: dict[str, Any] | None, status
     payload = {
         "notification_hash": notification_hash,
         "customer_id": item.get("customer_id"),
+        "public_code": item.get("public_code"),
         "anomaly_id": item.get("source_id") if item.get("source_kind") == "anomaly" else None,
         "insight_id": item.get("source_id") if item.get("source_kind") == "insight" else None,
         "recipient_id": _recipient_event_id(recipient),
@@ -599,12 +597,19 @@ def _candidate_items() -> list[dict[str, Any]]:
     unit_links, device_links = _load_customer_links()
     customer_names = _load_customer_names()
     items: list[dict[str, Any]] = []
-    for row in list_anomalies(120, "open"):
-        customer_id = _row_customer_id(row, unit_links, device_links)
-        items.append(_normalize_anomaly(row, customer_id, _customer_name_for_id(customer_id, customer_names)))
-    for row in list_insights(80):
-        customer_id = _row_customer_id(row, unit_links, device_links)
-        items.append(_normalize_insight(row, customer_id, _customer_name_for_id(customer_id, customer_names)))
+    active_anomaly_statuses = {"open", "reopened", "acknowledged", "investigating", "solution_suggested", "ticket_opened"}
+    for row in list_anomalies(200):
+        if str(row.get("status") or "open") not in active_anomaly_statuses:
+            continue
+        if row.get("whatsapp_sent_at") and str(row.get("status") or "open") != "reopened":
+            continue
+        try:
+            coded_row = ensure_public_code_on_row(row)
+        except Exception as exc:
+            logger.error("Anomalia %s sem código público; WhatsApp bloqueado: %s", row.get("id"), exc)
+            continue
+        customer_id = _row_customer_id(coded_row, unit_links, device_links)
+        items.append(_normalize_anomaly(coded_row, customer_id, _customer_name_for_id(customer_id, customer_names)))
     return items
 
 
@@ -750,10 +755,6 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
             continue
 
         for recipient in matching:
-            if _recipient_in_cooldown(recipient, include_dry_run=effective_dry_run):
-                skipped += 1
-                _insert_event(item, recipient, "skipped", build_single_message(item, settings.app_public_url), skip_reason="recipient_cooldown")
-                continue
             if severity_rank(item.get("severity")) >= 4 and not recipient.get("receive_critical", True):
                 skipped += 1
                 _insert_event(item, recipient, "skipped", build_single_message(item, settings.app_public_url), skip_reason="recipient_critical_disabled")
@@ -783,23 +784,30 @@ def process_notifications(scope: TenantScope | None = None, dry_run: bool | None
 
     for recipient_key, rows in selected_by_recipient.items():
         recipient = recipient_by_id[recipient_key]
-        rows = sorted(rows, key=lambda item: severity_rank(item.get("severity")), reverse=True)[:5]
-        message = build_group_message(rows, settings.app_public_url) if len(rows) > 1 else build_single_message(rows[0], settings.app_public_url)
-        if _should_enrich_with_ai(rows, ai_calls_used):
-            ai_calls_used += 1
-            message, used_ai, _ai_warning = _enrich_message_with_ai(rows, message)
-            if used_ai:
-                ai_enriched += len(rows)
-        message = ensure_customer_context(message, rows)
-        message = _with_portal_footer(message)
-        status, error, provider_id = ("dry_run", None, None) if effective_dry_run else _send_message(recipient, message)
-        if status == "sent":
-            sent += len(rows)
-        elif status == "dry_run":
-            dry_run_count += len(rows)
-        else:
-            failed += len(rows)
-        for item in rows:
+        ordered_rows = sorted(
+            rows,
+            key=lambda item: (
+                severity_rank(item.get("severity")),
+                _parse_dt(item.get("detected_at") or item.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc),
+            ),
+            reverse=True,
+        )
+        for item in ordered_rows:
+            message = build_single_message(item, settings.app_public_url)
+            if _should_enrich_with_ai([item], ai_calls_used):
+                ai_calls_used += 1
+                message, used_ai, _ai_warning = _enrich_message_with_ai([item], message)
+                if used_ai:
+                    ai_enriched += 1
+            message = ensure_customer_context(message, [item])
+            message = _with_portal_footer(message)
+            status, error, provider_id = ("dry_run", None, None) if effective_dry_run else _send_message(recipient, message)
+            if status == "sent":
+                sent += 1
+            elif status == "dry_run":
+                dry_run_count += 1
+            else:
+                failed += 1
             _insert_event(item, recipient, status, message, error_message=error, provider_message_id=provider_id)
 
     elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
